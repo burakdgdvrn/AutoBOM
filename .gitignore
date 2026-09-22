@@ -9,6 +9,7 @@ venv/
 env/
 ENV/
 .env
+scripts/
 
 # Veri Klasörleri (Büyük dosyalar ve şirket verileri)
 # Klasör yapısı git'e gitsin ama içindeki dosyalar gitmesin diye /* kullanıyoruz
