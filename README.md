@@ -33,6 +33,3 @@ An AI-powered automation system for extracting and comparing Bill of Materials (
    python backend/app.py
    ```
 4. Open `frontend/ERP Sistemi.html` in your web browser or via Live Server.
-
-## 📝 License
-Proprietary / Private - Havatek
