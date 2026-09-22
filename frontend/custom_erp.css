@@ -1,0 +1,445 @@
+/* =========================================================
+   HAVATEK BOM ENGINE - ENTERPRISE SAAS UI
+   ========================================================= */
+
+:root {
+    /* Light Theme (Default) */
+    --bg-body: #F4F7FE; /* Soft blue-grey background */
+    --bg-surface: #FFFFFF;
+    --bg-sidebar: #FFFFFF;
+    
+    --border-light: rgba(0, 0, 0, 0.06);
+    --border-strong: rgba(0, 0, 0, 0.12);
+    
+    --text-main: #1B2559; /* Deep navy */
+    --text-muted: #A3AED0;
+    
+    --primary: #4318FF; /* Vibrant SaaS purple/blue */
+    --primary-hover: #3311DB;
+    --primary-subtle: rgba(67, 24, 255, 0.08);
+    
+    --success: #05CD99;
+    --success-subtle: rgba(5, 205, 153, 0.08);
+    
+    --info: #39B8FF;
+    --info-subtle: rgba(57, 184, 255, 0.08);
+
+    --shadow-soft: 0px 18px 40px rgba(112, 144, 176, 0.12);
+    --shadow-sm: 0px 4px 12px rgba(112, 144, 176, 0.08);
+    
+    /* Handsontable Overrides */
+    --hot-bg: #FFFFFF;
+    --hot-header-bg: #F4F7FE;
+    --hot-border: #E9EDF7;
+    --hot-text: #1B2559;
+}
+
+[data-bs-theme="dark"] {
+    /* Hyper-Professional Dark Theme (Vercel/Linear style) */
+    --bg-body: #09090b; /* Zinc 950 - Almost black */
+    --bg-surface: #121214; /* Extremely dark gray for cards */
+    --bg-sidebar: #121214;
+    
+    --border-light: rgba(255, 255, 255, 0.04);
+    --border-strong: rgba(255, 255, 255, 0.08);
+    
+    --text-main: #EDEDED;
+    --text-muted: #888888;
+    
+    --primary: #6366F1; /* Subtle indigo accent */
+    --primary-hover: #4F46E5;
+    --primary-subtle: rgba(99, 102, 241, 0.1);
+    
+    --success: #10B981;
+    --success-subtle: rgba(16, 185, 129, 0.1);
+    
+    --info: #38BDF8;
+    --info-subtle: rgba(56, 189, 248, 0.1);
+
+    --shadow-soft: 0px 8px 30px rgba(0, 0, 0, 0.4);
+    --shadow-sm: 0px 4px 12px rgba(0, 0, 0, 0.3);
+    
+    /* Handsontable Overrides */
+    --hot-bg: #121214;
+    --hot-header-bg: #09090b;
+    --hot-border: rgba(255, 255, 255, 0.05);
+    --hot-text: #EDEDED;
+}
+
+body {
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    background-color: var(--bg-body);
+    color: var(--text-main);
+    margin: 0;
+    padding: 0;
+    overflow: hidden; /* Hide body scroll, layout handles it */
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* --- Typography --- */
+.tracking-wide {
+    letter-spacing: 1px;
+}
+
+/* --- Layout --- */
+.saas-navbar {
+    height: 70px;
+    background-color: var(--bg-surface);
+    border-bottom: 1px solid var(--border-light);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 24px;
+    box-shadow: var(--shadow-sm);
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 1000;
+    transition: all 0.3s ease;
+}
+
+.navbar-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.brand-logo {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background-color: var(--primary-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+}
+
+.brand-text {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text-main);
+}
+
+.navbar-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.divider {
+    width: 1px;
+    height: 24px;
+    background-color: var(--border-strong);
+}
+
+.saas-layout {
+    display: flex;
+    margin-top: 70px;
+    height: calc(100vh - 70px);
+}
+
+/* Sidebar kaldırıldı, layout tam genişlikte */
+.saas-layout {
+    display: flex;
+    margin-top: 70px;
+    height: calc(100vh - 70px);
+    width: 100vw;
+}
+
+/* --- Main Area --- */
+.saas-main {
+    flex: 1;
+    padding: 24px;
+    background-color: var(--bg-body);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.grid-card {
+    background-color: var(--bg-surface);
+    border-radius: 20px;
+    box-shadow: var(--shadow-soft);
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.grid-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border-light);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.icon-square {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+}
+
+.bg-primary-subtle { background-color: var(--primary-subtle); }
+.bg-info-subtle { background-color: var(--info-subtle); }
+
+.row-counter {
+    background-color: var(--primary-subtle);
+    color: var(--primary);
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.grid-body {
+    flex: 1;
+    position: relative;
+    overflow: hidden; /* Prevent black bars */
+    background-color: var(--bg-surface);
+}
+
+/* Handsontable absolute fill */
+.hot-container {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* --- Fullscreen Drag Overlay --- */
+.drag-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-color: rgba(67, 24, 255, 0.9);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.3s ease;
+    backdrop-filter: blur(5px);
+}
+
+.drag-overlay.d-none {
+    opacity: 0;
+    pointer-events: none;
+    display: flex !important; /* Keep flex for transition, use opacity */
+}
+
+.drag-overlay-content {
+    text-align: center;
+    color: white;
+    border: 4px dashed rgba(255, 255, 255, 0.5);
+    border-radius: 24px;
+    padding: 60px 100px;
+    pointer-events: none; /* Let drag events pass through to document */
+}
+
+.drag-overlay-content i {
+    font-size: 80px;
+    margin-bottom: 24px;
+    animation: bounce 2s infinite;
+}
+
+@keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-20px); }
+}
+
+/* --- Fullscreen Spinner --- */
+.fullscreen-spinner {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-color: rgba(9, 9, 11, 0.85); /* Koyu arkaplan */
+    z-index: 9998;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(8px);
+}
+
+.fullscreen-spinner.d-none {
+    display: none !important;
+}
+
+/* --- Buttons --- */
+.btn-action {
+    display: flex;
+    align-items: center;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    padding: 8px 20px;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border: none;
+}
+
+.btn-action.primary {
+    background-color: var(--primary);
+    color: #FFFFFF;
+    box-shadow: 0 4px 12px rgba(67, 24, 255, 0.3);
+}
+
+.btn-action.primary:hover {
+    background-color: var(--primary-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(67, 24, 255, 0.4);
+}
+
+.btn-action.outline {
+    background-color: transparent;
+    color: var(--text-main);
+    border: 1px solid var(--border-strong);
+}
+
+.btn-action.outline:hover {
+    background-color: var(--bg-body);
+    border-color: var(--text-muted);
+}
+
+/* --- Theme Toggle Switch --- */
+.theme-switch {
+    position: relative;
+    display: inline-block;
+    width: 54px;
+    height: 28px;
+    margin: 0;
+}
+.theme-switch input { 
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-color: #E9EDF7;
+    transition: .4s;
+    border-radius: 34px;
+}
+.slider:before {
+    position: absolute;
+    content: "\f185"; /* Sun */
+    font-family: 'FontAwesome';
+    height: 20px;
+    width: 20px;
+    left: 4px;
+    bottom: 4px;
+    background-color: #FFFFFF;
+    transition: .4s;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: #FFB547;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+[data-bs-theme="dark"] .slider {
+    background-color: #1F2E63;
+}
+
+input:checked + .slider {
+    background-color: #1F2E63;
+}
+input:checked + .slider:before {
+    transform: translateX(26px);
+    content: "\f186"; /* Moon */
+    color: #7551FF;
+    background-color: #111C44;
+}
+
+/* --- Handsontable Theme --- */
+.handsontable {
+    font-family: 'JetBrains Mono', 'Plus Jakarta Sans', monospace !important;
+    font-size: 13px !important;
+    color: var(--hot-text) !important;
+}
+
+.handsontable .htCore {
+    border-collapse: collapse !important;
+}
+
+/* Headers */
+.handsontable th,
+.handsontable .htCore th {
+    background-color: var(--hot-header-bg) !important;
+    color: var(--text-muted) !important;
+    font-weight: 700 !important;
+    border-color: var(--hot-border) !important;
+    border-bottom: 2px solid var(--border-strong) !important;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    padding: 8px !important;
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
+}
+
+/* Cells (High specificity to override Handsontable default alternating rows/dimmed classes) */
+.handsontable td,
+.handsontable .htCore td,
+.handsontable .htCore tbody tr td,
+.handsontable .htCore tbody tr:nth-of-type(even) td,
+.handsontable .htCore tbody tr:nth-of-type(odd) td,
+.handsontable .htDimmed {
+    background-color: var(--hot-bg) !important;
+    color: var(--hot-text) !important;
+    border-color: var(--hot-border) !important;
+    transition: background-color 0.15s ease;
+    vertical-align: middle !important;
+}
+
+/* Row Hover */
+.handsontable tr:hover td,
+.handsontable .htCore tbody tr:hover td {
+    background-color: var(--primary-subtle) !important;
+}
+
+/* Active Cell Editor (The input box when double-clicking) */
+.handsontableInputHolder, 
+.handsontableInput {
+    background-color: var(--hot-bg) !important;
+    color: var(--hot-text) !important;
+    border: 2px solid var(--primary) !important;
+    box-shadow: var(--shadow-sm) !important;
+    border-radius: 4px !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 13px !important;
+}
+
+/* Selection and Active cell */
+.handsontable .ht_master .wtBorder {
+    background-color: var(--primary) !important;
+}
+
+.handsontable .current,
+.handsontable .htCore td.current {
+    background-color: var(--primary-subtle) !important;
+}
+
+/* Scrollbars */
+.wtHolder::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+.wtHolder::-webkit-scrollbar-track {
+    background: transparent;
+}
+.wtHolder::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 6px;
+}
+.wtHolder::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+}

@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="tr" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Havatek BOM Automation</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    
+    <!-- Handsontable CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.css" rel="stylesheet" media="screen">
+    
+    <!-- SweetAlert2 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css" rel="stylesheet">
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="custom_erp.css">
+</head>
+<body>
+
+    <!-- Professional Navbar -->
+    <nav class="saas-navbar">
+        <div class="navbar-left">
+            <div class="brand-logo">
+                <i class="fas fa-layer-group text-primary"></i>
+            </div>
+            <span class="brand-text">HAVATEK <span class="fw-light">BOM ENGINE</span></span>
+        </div>
+        
+        <div class="navbar-right">
+            <label class="theme-switch" title="Gündüz/Gece Modu">
+                <input type="checkbox" id="themeToggle" checked>
+                <span class="slider"></span>
+            </label>
+            <div class="divider"></div>
+            <button class="btn-action outline" onclick="clearTable()" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.3);">
+                <i class="fas fa-trash-alt me-2"></i> Temizle
+            </button>
+            <button class="btn-action outline" onclick="exportToExcel()">
+                <i class="fas fa-file-excel text-success me-2"></i> Excel'e Aktar
+            </button>
+            <div class="divider"></div>
+            <!-- Master Excel ile Karşılaştır Butonu (Direkt Tıklama) -->
+            <button class="btn-action outline" onclick="handleExcelCompare()" style="color: var(--info); border-color: var(--info-subtle);">
+                <i class="fas fa-chart-pie me-2"></i> Kıyasla (Ana Liste)
+            </button>
+            <div class="divider"></div>
+            <!-- Yeni PDF Yükle Butonu (Navbar'da) -->
+            <label class="btn-action primary" style="cursor: pointer; position: relative; overflow: hidden;">
+                <i class="fas fa-cloud-upload-alt me-2"></i> PDF Yükle
+                <input type="file" id="pdfUpload" accept=".pdf" onchange="handlePDFUpload(event)" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 2;">
+            </label>
+        </div>
+    </nav>
+
+    <!-- Fullscreen Drag & Drop Overlay -->
+    <div id="drag-overlay" class="drag-overlay d-none">
+        <div class="drag-overlay-content">
+            <i class="fas fa-file-pdf"></i>
+            <h2>PDF Dosyasını Buraya Bırakın</h2>
+            <p>BOM tabloları otomatik olarak Excel formatına dönüştürülecektir.</p>
+        </div>
+    </div>
+    
+    <!-- Fullscreen Spinner -->
+    <div id="upload-spinner" class="fullscreen-spinner d-none">
+        <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status"></div>
+        <h4 class="mt-3 fw-bold text-white">PDF İşleniyor...</h4>
+        <p class="text-white-50">Yapay Zeka tabloları okuyor ve Spool'ları eşleştiriyor.</p>
+    </div>
+
+    <!-- Main Content -->
+    <div class="saas-layout">
+        
+        <!-- Main Data Grid Area -->
+        <main class="saas-main w-100">
+            <div class="grid-card">
+                <div class="grid-header">
+                    <div class="d-flex align-items-center">
+                        <div class="icon-square bg-primary-subtle text-primary me-3">
+                            <i class="fas fa-table"></i>
+                        </div>
+                        <div>
+                            <h5 class="fw-bold mb-0">BOM Tablosu</h5>
+                            <span class="text-muted small">Excel formatı ile birebir uyumlu canlı veri görünümü.</span>
+                        </div>
+                    </div>
+                    <div class="row-counter" id="row-count-badge">0 Satır</div>
+                </div>
+                
+                <div class="grid-body">
+                    <!-- Handsontable Container -->
+                    <div id="hot-grid" class="hot-container"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Comparison Modal -->
+    <div class="modal fade" id="compareModal" tabindex="-1" aria-labelledby="compareModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content" style="background-color: var(--bg-surface); color: var(--text-main); border: 1px solid var(--border-strong);">
+                <div class="modal-header border-bottom-0">
+                    <h5 class="modal-title fw-bold" id="compareModalLabel">
+                        <i class="fas fa-chart-line text-primary me-2"></i> BOM QA & Validation Raporu
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" style="filter: invert(1) grayscale(100%) brightness(200%);"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- Skor Kartları -->
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-3">
+                            <div class="p-3 rounded bg-success-subtle border border-success" style="--bs-border-opacity: .2;">
+                                <h6 class="text-success fw-bold"><i class="fas fa-check-circle me-1"></i> Kusursuz Eşleşen</h6>
+                                <h2 class="mb-0 fw-bold" id="stat-perfect">0</h2>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="p-3 rounded bg-info-subtle border border-info" style="--bs-border-opacity: .2;">
+                                <h6 class="text-info fw-bold"><i class="fas fa-plus-circle me-1"></i> AI'ın Ekstra Bulduğu</h6>
+                                <h2 class="mb-0 fw-bold" id="stat-extra">0</h2>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="p-3 rounded bg-warning-subtle border border-warning" style="--bs-border-opacity: .2;">
+                                <h6 class="text-warning fw-bold"><i class="fas fa-exclamation-triangle me-1"></i> Uyuşmazlıklar</h6>
+                                <h2 class="mb-0 fw-bold" id="stat-diff">0</h2>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="p-3 rounded bg-danger-subtle border border-danger" style="--bs-border-opacity: .2;">
+                                <h6 class="text-danger fw-bold"><i class="fas fa-times-circle me-1"></i> Gözden Kaçanlar</h6>
+                                <h2 class="mb-0 fw-bold" id="stat-missed">0</h2>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sekmeler -->
+                    <ul class="nav nav-tabs" id="compareTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="missed-tab" data-bs-toggle="tab" data-bs-target="#missed-pane" type="button" role="tab">Gözden Kaçanlar</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="extra-tab" data-bs-toggle="tab" data-bs-target="#extra-pane" type="button" role="tab">AI Ekstraları</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="diff-tab" data-bs-toggle="tab" data-bs-target="#diff-pane" type="button" role="tab">Hücre Uyuşmazlıkları</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="perfect-tab" data-bs-toggle="tab" data-bs-target="#perfect-pane" type="button" role="tab">Eşleşenler</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="raw-ex-tab" data-bs-toggle="tab" data-bs-target="#raw-ex-pane" type="button" role="tab">Ham Tekniker Excel'i</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="raw-ai-tab" data-bs-toggle="tab" data-bs-target="#raw-ai-pane" type="button" role="tab">Ham AI Verisi</button>
+                        </li>
+                    </ul>
+                    
+                    <div class="tab-content mt-3" id="compareTabContent">
+                        <div class="tab-pane fade show active" id="missed-pane" role="tabpanel" tabindex="0">
+                            <div class="table-responsive">
+                                <table class="table table-dark table-hover table-sm">
+                                    <thead><tr><th>Technical Drawing</th><th>Assembly</th><th>Sub Assembly</th><th>Item Code</th><th>Excel Qty</th><th>Desc</th></tr></thead>
+                                    <tbody id="tbody-missed"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="extra-pane" role="tabpanel" tabindex="0">
+                            <div class="table-responsive">
+                                <table class="table table-dark table-hover table-sm">
+                                    <thead><tr><th>Technical Drawing</th><th>Assembly</th><th>Sub Assembly</th><th>Item Code</th><th>AI Qty</th><th>Desc</th></tr></thead>
+                                    <tbody id="tbody-extra"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="diff-pane" role="tabpanel" tabindex="0">
+                            <div class="table-responsive">
+                                <table class="table table-dark table-hover table-sm">
+                                    <thead><tr><th>Technical Drawing</th><th>Assembly</th><th>Sub Assembly</th><th>Item Code</th><th>Excel Qty</th><th>AI Qty</th></tr></thead>
+                                    <tbody id="tbody-diff"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="perfect-pane" role="tabpanel" tabindex="0">
+                            <div class="table-responsive">
+                                <table class="table table-dark table-hover table-sm">
+                                    <thead><tr><th>Technical Drawing</th><th>Assembly</th><th>Sub Assembly</th><th>Item Code</th><th>Qty</th></tr></thead>
+                                    <tbody id="tbody-perfect"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="raw-ex-pane" role="tabpanel" tabindex="0">
+                            <div class="table-responsive">
+                                <table class="table table-dark table-hover table-sm">
+                                    <thead><tr><th>Technical Drawing</th><th>Assembly</th><th>Sub Assembly</th><th>Item Code</th><th>Qty</th></tr></thead>
+                                    <tbody id="tbody-raw-ex"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="raw-ai-pane" role="tabpanel" tabindex="0">
+                            <div class="table-responsive">
+                                <table class="table table-dark table-hover table-sm">
+                                    <thead><tr><th>Technical Drawing</th><th>Assembly</th><th>Sub Assembly</th><th>Item Code</th><th>Qty</th></tr></thead>
+                                    <tbody id="tbody-raw-ai"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer d-flex justify-content-between border-top-0 pt-0">
+                    <button type="button" class="btn-action primary" onclick="downloadQAReport()" style="background-color: #2F5496; border-color: #2F5496;">
+                        <i class="fas fa-file-excel me-2"></i> Detaylı Analiz Raporunu İndir (Excel)
+                    </button>
+                    <button type="button" class="btn-action outline" data-bs-dismiss="modal">Kapat</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.js"></script>
+    <!-- XLSX library for Excel export -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- SweetAlert2 library for beautiful alerts -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="custom_erp.js"></script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.env
+
+# Veri Klasörleri (Büyük dosyalar ve şirket verileri)
+# Klasör yapısı git'e gitsin ama içindeki dosyalar gitmesin diye /* kullanıyoruz
+data/input_pdfs/*
+!data/input_pdfs/.gitkeep
+
+data/master_excel/*
+!data/master_excel/.gitkeep
+
+data/outputs/*
+!data/outputs/.gitkeep
+
+# Çıktı ve Geçici Dosyalar (Script klasöründeki test çıktıları)
+scripts/*.json
+scripts/*.txt
+*.xlsx
+*.pdf
+
+# IDE ve OS Dosyaları
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
