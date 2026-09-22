@@ -1,4 +1,4 @@
-# SmartBOM Extractor
+# AutoBOM Extractor
 
 An AI-powered automation system for extracting and comparing Bill of Materials (BOM) from technical PDF drawings.
 
