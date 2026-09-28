@@ -569,3 +569,142 @@ window.handleExcelCompare = async function(event) {
     }
 };
 
+// --- YOLO AI Test Sistemi ---
+window.openYoloModal = function() {
+    const modal = new bootstrap.Modal(document.getElementById('yoloModal'));
+    modal.show();
+};
+
+window.runYoloTest = async function() {
+    const fileInput = document.getElementById('yoloImageInput');
+    const file = fileInput.files[0];
+    if (!file) {
+        Toast.fire({
+            icon: 'warning',
+            title: 'Lütfen bir resim seçin',
+            background: 'var(--bg-surface)',
+            color: 'var(--text-main)'
+        });
+        return;
+    }
+
+    const spinner = document.getElementById('yolo-spinner');
+    const resultContainer = document.getElementById('yolo-result-container');
+    const resultImg = document.getElementById('yolo-result-img');
+    
+    spinner.classList.remove('d-none');
+    resultContainer.classList.add('d-none');
+
+    const formData = new FormData();
+    formData.append('image', file);
+
+    try {
+        const response = await fetch('http://127.0.0.1:5000/api/test-yolo', {
+            method: 'POST',
+            body: formData
+        });
+
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            resultImg.src = 'data:image/jpeg;base64,' + data.image_base64;
+            resultContainer.classList.remove('d-none');
+            if (typeof resetYoloZoom === 'function') resetYoloZoom();
+            Toast.fire({
+                icon: 'success',
+                title: 'Yapay Zeka Analizi Tamamlandı',
+                background: 'var(--bg-surface)',
+                color: 'var(--text-main)'
+            });
+        } else {
+            Toast.fire({
+                icon: 'error',
+                title: 'Hata',
+                text: data.message,
+                background: 'var(--bg-surface)',
+                color: 'var(--text-main)'
+            });
+        }
+    } catch (error) {
+        console.error("YOLO Test Hatası:", error);
+        Toast.fire({
+            icon: 'error',
+            title: 'Bağlantı Hatası',
+            text: 'Sunucuya ulaşılamadı. Backend API çalışıyor mu? (app.py)',
+            background: 'var(--bg-surface)',
+            color: 'var(--text-main)'
+        });
+    } finally {
+        spinner.classList.add('d-none');
+    }
+};
+
+let currentZoomPercent = 100;
+window.zoomYoloImage = function(step) {
+    const img = document.getElementById('yolo-result-img');
+    if (!img) return;
+    currentZoomPercent += step;
+    if (currentZoomPercent < 20) currentZoomPercent = 20;
+    if (currentZoomPercent > 1000) currentZoomPercent = 1000;
+    img.style.width = currentZoomPercent + '%';
+};
+
+window.resetYoloZoom = function() {
+    const img = document.getElementById('yolo-result-img');
+    if (!img) return;
+    currentZoomPercent = 100;
+    img.style.width = '100%';
+};
+
+// --- YOLO Image Pan & Zoom Events ---
+document.addEventListener('DOMContentLoaded', function() {
+    const yoloContainer = document.getElementById('yolo-scroll-container');
+    const yoloImg = document.getElementById('yolo-result-img');
+    
+    if (yoloContainer && yoloImg) {
+        let isDown = false;
+        let startX;
+        let startY;
+        let scrollLeft;
+        let scrollTop;
+
+        yoloContainer.addEventListener('mousedown', (e) => {
+            isDown = true;
+            yoloContainer.style.cursor = 'grabbing';
+            startX = e.pageX - yoloContainer.offsetLeft;
+            startY = e.pageY - yoloContainer.offsetTop;
+            scrollLeft = yoloContainer.scrollLeft;
+            scrollTop = yoloContainer.scrollTop;
+            e.preventDefault(); // Default drag engelle
+        });
+
+        yoloContainer.addEventListener('mouseleave', () => {
+            isDown = false;
+            yoloContainer.style.cursor = 'grab';
+        });
+
+        yoloContainer.addEventListener('mouseup', () => {
+            isDown = false;
+            yoloContainer.style.cursor = 'grab';
+        });
+
+        yoloContainer.addEventListener('mousemove', (e) => {
+            if (!isDown) return;
+            e.preventDefault();
+            const x = e.pageX - yoloContainer.offsetLeft;
+            const y = e.pageY - yoloContainer.offsetTop;
+            const walkX = (x - startX) * 1.5; // Hızlı kaydırma çarpanı
+            const walkY = (y - startY) * 1.5;
+            yoloContainer.scrollLeft = scrollLeft - walkX;
+            yoloContainer.scrollTop = scrollTop - walkY;
+        });
+        
+        // Mouse tekerleği ile zoom
+        yoloContainer.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? -10 : 10;
+            zoomYoloImage(delta);
+        });
+    }
+});
+

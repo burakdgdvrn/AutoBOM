@@ -9,7 +9,7 @@ venv/
 env/
 ENV/
 .env
-scripts/
+
 
 # Veri Klasörleri (Büyük dosyalar ve şirket verileri)
 # Klasör yapısı git'e gitsin ama içindeki dosyalar gitmesin diye /* kullanıyoruz
@@ -33,3 +33,9 @@ scripts/*.txt
 .idea/
 .DS_Store
 Thumbs.db
+
+#Klasörler
+scripts/
+colab_results/
+models/
+data/roboflow_images/
