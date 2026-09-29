@@ -94,17 +94,17 @@ CUT_PIPE_COLS = [
 TABLE_CONFIGS = {
     "FABRICATION MATERIALS": {
         "headers": [c[2] for c in FAB_EREC_COLS],
-        "col_ranges": [(c[0], c[1]) for c in FAB_EREC_COLS],
+        "col_ranges": FAB_EREC_COLS,
         "title_keyword": "FABRICATION MATERIALS",
     },
     "ERECTION MATERIALS": {
         "headers": [c[2] for c in FAB_EREC_COLS],
-        "col_ranges": [(c[0], c[1]) for c in FAB_EREC_COLS],
+        "col_ranges": FAB_EREC_COLS,
         "title_keyword": "ERECTION MATERIALS",
     },
     "CUT PIPE LENGTH": {
         "headers": [c[2] for c in CUT_PIPE_COLS],
-        "col_ranges": [(c[0], c[1]) for c in CUT_PIPE_COLS],
+        "col_ranges": CUT_PIPE_COLS,
         "title_keyword": "CUT PIPE LENGTH",
     },
 }
@@ -131,6 +131,123 @@ print("OCR motoru hazir.\n")
 # ============================================================================
 # YARDIMCI FONKSİYONLAR
 # ============================================================================
+
+def canonicalize_spool(raw_spool, base_drawing, yolo_candidates=None):
+    """
+    Validates and canonicalizes a raw OCR spool string strictly.
+    Returns: {raw_spool, canonical_spool, normalization_reason, candidate_spools, selected_candidate, confidence, status}
+    """
+    if yolo_candidates is None:
+        yolo_candidates = []
+        
+    result = {
+        "raw_spool": raw_spool,
+        "canonical_spool": None,
+        "normalization_reason": None,
+        "candidate_spools": [c["text"] for c in yolo_candidates],
+        "selected_candidate": None,
+        "confidence": 0.0,
+        "status": "UNRESOLVED"
+    }
+    
+    if not raw_spool:
+        result["normalization_reason"] = "Empty raw spool"
+        return result
+        
+    # Isolate spool part if there's noise prepended (e.g. "1 15722 IG-502450...")
+    spool_part = raw_spool
+    if "502" in raw_spool:
+        parts = raw_spool.split()
+        for p in parts:
+            if "502" in p:
+                spool_part = p
+                break
+                
+    raw_spool_upper = spool_part.upper().strip()
+    
+    # Strictly extract expected suffix (e.g., SP followed by digits or O->0)
+    # E.g., SPO1, SP02, SP3
+    match = re.search(r'SP[O0\d]+$', raw_spool_upper.replace(' ', '-'))
+    
+    if match:
+        raw_suffix = match.group(0)
+        canonical_suffix = raw_suffix.replace('O', '0')
+        if not canonical_suffix.startswith('SP0') and len(canonical_suffix) == 3:
+            # SP1 -> SP01
+            canonical_suffix = canonical_suffix.replace('SP', 'SP0')
+            
+        canonical = f"{base_drawing}-{canonical_suffix}"
+        
+        # Check YOLO candidates that match this suffix
+        matching_candidates = []
+        for y_spool in yolo_candidates:
+            y_text = y_spool['text'].upper()
+            if y_text.endswith(canonical_suffix):
+                matching_candidates.append(y_spool)
+                
+        if len(matching_candidates) == 1:
+            y_spool = matching_candidates[0]
+            result["canonical_spool"] = canonical
+            result["selected_candidate"] = y_spool["text"]
+            result["normalization_reason"] = f"Prefix from base_drawing, unique suffix match YOLO ({canonical_suffix})"
+            result["confidence"] = y_spool.get('conf', 0.9)
+            result["status"] = "VALID"
+            return result
+            
+        elif len(matching_candidates) > 1:
+            # Sort by confidence
+            matching_candidates.sort(key=lambda x: x.get('conf', 0), reverse=True)
+            conf_diff = matching_candidates[0].get('conf', 0) - matching_candidates[1].get('conf', 0)
+            if conf_diff > 0.10:  # Arbitrary threshold for high confidence lead
+                y_spool = matching_candidates[0]
+                result["canonical_spool"] = canonical
+                result["selected_candidate"] = y_spool["text"]
+                result["normalization_reason"] = f"Prefix from base_drawing, suffix matched YOLO by highest conf diff ({canonical_suffix})"
+                result["confidence"] = y_spool.get('conf', 0.9)
+                result["status"] = "VALID"
+            else:
+                result["normalization_reason"] = f"Ambiguous candidates for suffix {canonical_suffix}"
+                result["status"] = "AMBIGUOUS"
+            return result
+                
+        # If no YOLO candidate matches, but we parsed a valid suffix
+        result["canonical_spool"] = canonical
+        result["normalization_reason"] = f"Prefix from base_drawing, parsed suffix {canonical_suffix} (no YOLO match)"
+        result["confidence"] = 0.8
+        result["status"] = "VALID"
+        return result
+        
+    result["normalization_reason"] = "Could not confidently extract suffix"
+    result["status"] = "UNRESOLVED"
+    return result
+
+def validate_piece_no(raw_piece):
+    """Validates and normalizes Piece No."""
+    result = {
+        "raw": raw_piece,
+        "normalized": None,
+        "status": "UNRESOLVED"
+    }
+    if not raw_piece:
+        result["status"] = "EMPTY"
+        return result
+        
+    # Remove noise characters like <, >
+    cleaned = re.sub(r'[<>]', '', raw_piece.strip())
+    
+    # If the remaining is just digits
+    if cleaned.isdigit():
+        if len(cleaned) > 1 and cleaned != raw_piece.strip():
+             result["normalized"] = None
+             result["status"] = "AMBIGUOUS"
+             result["reason"] = "Multiple digits extracted with noise, requires bbox proof"
+        else:
+             result["normalized"] = cleaned
+             result["status"] = "VALID"
+    else:
+        result["status"] = "AMBIGUOUS"
+        
+    return result
 
 def pdf_to_image(pdf_path):
     """PDF sayfasını yüksek çözünürlüklü görüntüye çevir."""
@@ -266,9 +383,21 @@ def is_category_text(text):
     if any(c.isdigit() for c in clean):
         return False
     
-    # Tam eşleşme
+    # Tam eşleşme veya içeriyorsa
     if clean in CATEGORY_KEYWORDS_EXACT:
         return True
+    
+    # Fuzzy matching / substring
+    import re
+    from difflib import SequenceMatcher
+    clean_alpha = re.sub(r'[^A-Z]', '', clean)
+    for kw in CATEGORY_KEYWORDS_EXACT:
+        if kw in clean_alpha or clean_alpha in kw and len(clean_alpha) > 3:
+            return True
+        if len(clean_alpha) > 4:
+            ratio = SequenceMatcher(None, clean_alpha, kw).ratio()
+            if ratio > 0.8:
+                return True
     
     # Prefix eşleşme (VALVES... varyasyonları)
     for prefix in CATEGORY_PREFIXES:
@@ -356,7 +485,17 @@ def is_noise_row(cols, table_name):
         if not any("502" in cols[i] for i in filled):  # Spool numaraları "502" içerir
             if all(len(cols[i].strip()) <= 5 for i in filled):
                 return True
-    
+        
+    # Footer/Title filter
+    if table_name == "CUT PIPE LENGTH":
+        if any(w in all_upper for w in ["BRICATION", "TOTAL", "JTAL", "ECTION", "ERECTION", "FABRICATION"]):
+            # If the row has a valid Spool Number or Length, it's not just noise, it's a valid row with an overlapping stamp.
+            if len(cols) > 5 and ("502" in cols[5] or "SP" in cols[5]):
+                return False
+            if len(cols) > 2 and cols[2].strip().replace('.', '').isdigit():
+                return False
+            return True
+            
     return False
 
 
@@ -446,175 +585,290 @@ def group_by_lines(items, y_tolerance):
 def parse_table_region(img, table_name):
     """
     Bir tablo bölgesini OCR ile oku ve yapısal verilere çevir.
+    Faz 1 Mimarisi: General OCR + Cell-Level OCR + OpenCV Grid
     """
     region = REGIONS[table_name]
     config = TABLE_CONFIGS[table_name]
-    col_ranges = config["col_ranges"]
+    default_ranges = config["col_ranges"]
     title_kw = config["title_keyword"]
-    num_cols = len(col_ranges)
+    num_cols = len(default_ranges)
     headers = config["headers"]
     
     # Bölgeyi kırp
     cropped = crop_region(img, region)
     cw, ch = cropped.size
+    img_np = np.array(cropped)
     
-    # OCR
-    ocr_results = reader.readtext(np.array(cropped), detail=1, paragraph=False)
+    # 1. GENERAL OCR
+    ocr_results = reader.readtext(img_np, detail=1, paragraph=False)
     
     if not ocr_results:
         return {"headers": headers, "rows": []}
     
-    pl_no_header_bounds = None
-    if table_name == "FABRICATION MATERIALS":
-        for bbox, text, conf in ocr_results:
-            text_upper = text.upper()
-            if "COMPONENT" in text_upper and ("RS" in text_upper or "P/L" in text_upper):
-                total_len = len(text)
-                idx = text_upper.find("COMPONENT")
-                x1, x2 = bbox[0][0], bbox[1][0]
-                char_w = (x2 - x1) / max(total_len, 1)
-                pl_no_header_bounds = (int(x1), int(x1 + (idx * char_w)))
-                break
-            elif "P/L NO" in text_upper:
-                x1, x2 = bbox[0][0], bbox[1][0]
-                pl_no_header_bounds = (int(x1), int(x2))
-                break
-                
-    # OCR sonuçlarını işle
+    header_bboxes = {"PL_NO": None, "ITEM_CODE": None, "QTY": None, "DESC": None, "LENGTH": None, "NS": None, "SPOOL": None}
+    title_y = None
+    
     items = []
     for bbox, text, conf in ocr_results:
-        text = text.strip()
-        if not text or conf < 0.10:
-            continue
+        text_strip = text.strip()
+        if not text_strip or conf < 0.10: continue
         x_center = (bbox[0][0] + bbox[2][0]) / 2
         y_center = (bbox[0][1] + bbox[2][1]) / 2
-        items.append({
-            "x": x_center,
-            "y": y_center,
-            "x_norm": x_center / cw,
-            "text": fix_ocr_text(text),
-            "conf": conf,
-            "bbox": bbox
-        })
+        items.append({"text": fix_ocr_text(text_strip), "bbox": bbox, "xc": x_center, "yc": y_center, "conf": conf, "raw": text_strip})
+        
+        text_u = text_strip.upper()
+        if title_kw in text_u:
+            title_y = y_center
+        
+        # Header detection
+        if "COMPONENT" in text_u and ("RS" in text_u or "P/L" in text_u):
+            idx = text_u.find("COMPONENT")
+            char_w = (bbox[1][0] - bbox[0][0]) / max(len(text_strip), 1)
+            if idx > 0: header_bboxes["PL_NO"] = [bbox[0][0], bbox[0][0] + idx * char_w]
+            else: header_bboxes["PL_NO"] = [bbox[0][0], bbox[1][0]]
+        elif "P/L NO" in text_u or "PT NO" in text_u:
+            header_bboxes["PL_NO"] = [bbox[0][0], bbox[1][0]]
+        elif text_u == "ITEM CODE" or text_u == "ITEM NO" or "ITEM CODE" in text_u:
+            if not header_bboxes["ITEM_CODE"]: header_bboxes["ITEM_CODE"] = [bbox[0][0], bbox[1][0]]
+            else: header_bboxes["ITEM_CODE"] = [min(header_bboxes["ITEM_CODE"][0], bbox[0][0]), max(header_bboxes["ITEM_CODE"][1], bbox[1][0])]
+        elif text_u == "QTY" or "QTY" in text_u:
+            header_bboxes["QTY"] = [bbox[0][0], bbox[1][0]]
+        elif "DESCRIPTION" in text_u:
+            header_bboxes["DESC"] = [bbox[0][0], bbox[1][0]]
+        elif "LENGTH" in text_u:
+            header_bboxes["LENGTH"] = [bbox[0][0], bbox[1][0]]
+        elif "N.S" in text_u or "NS" in text_u:
+            header_bboxes["NS"] = [bbox[0][0], bbox[1][0]]
+        elif "SPOOL" in text_u:
+            header_bboxes["SPOOL"] = [bbox[0][0], bbox[1][0]]
+
+    # 3. OpenCV Vertical Lines (Secondary)
+    import cv2
+    gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
+    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2)
+    vert_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, ch // 20))
+    vert_lines = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, vert_kernel, iterations=2)
+    v_cnts, _ = cv2.findContours(vert_lines, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    v_xs = [cv2.boundingRect(c)[0] + cv2.boundingRect(c)[2]//2 for c in v_cnts if cv2.boundingRect(c)[3] > ch // 10]
     
-    if not items:
-        return {"headers": headers, "rows": []}
+    def find_nearest_vline(target_x, search_range=20):
+        cands = [x for x in v_xs if abs(x - target_x) < search_range]
+        return cands[0] if cands else target_x
+
+    # 4. Construct Column Boundaries
+    col_bounds = {}
+    col_names = []
     
-    # Tablo başlığı satırını bul ve altındaki içeriği al
-    title_y = None
-    for item in items:
-        if title_kw in item["text"].upper():
-            title_y = item["y"]
-            break
+    # Init from default ranges
+    for i, rng in enumerate(default_ranges):
+        col_name = rng[2] if len(rng) > 2 else f"COL_{i}"
+        col_names.append(col_name)
+        col_bounds[col_name] = [int(rng[0] * cw), int(rng[1] * cw)]
+
+    # Refine ITEM CODE
+    if header_bboxes["ITEM_CODE"] and "ITEM CODE" in col_bounds:
+        ic_left, ic_right = header_bboxes["ITEM_CODE"]
+        ic_bound_left = find_nearest_vline(ic_left - 10)
+        ic_bound_right = find_nearest_vline(ic_right + 10)
+        col_bounds["ITEM CODE"] = [ic_bound_left, ic_bound_right]
+        # Adjust previous column
+        for name in ["N.S", "DESCRIPTION"]:
+            if name in col_bounds and col_bounds[name][1] > ic_bound_left:
+                col_bounds[name][1] = ic_bound_left
     
-    # Başlık bulunamazsa, tablo boş olabilir
-    if title_y is None:
-        return {"headers": headers, "rows": []}
+    # Refine P/L NO / PT NO
+    pt_no_key = "PT NO" if "PT NO" in col_bounds else ("P/L NO" if "P/L NO" in col_bounds else None)
+    if header_bboxes["PL_NO"] and pt_no_key:
+        pl_left, pl_right = header_bboxes["PL_NO"]
+        pl_right_bound = find_nearest_vline(pl_right + 10)
+        col_bounds[pt_no_key] = [max(0, pl_left - 10), pl_right_bound]
+        if "DESCRIPTION" in col_bounds:
+            col_bounds["DESCRIPTION"][0] = pl_right_bound
+        if "LENGTH (MM)" in col_bounds:
+            col_bounds["LENGTH (MM)"][0] = pl_right_bound
+            
+    # Refine CUT PIPE LENGTH columns
+    if table_name == "CUT PIPE LENGTH":
+        # Based on exact data token X-coordinates from PDF:
+        # PIECE NO (~201), PT NO (~236), LENGTH (~297), N.S. (~361), ITEM NO (~413), SPOOL (~507)
+        # We snap to the nearest vertical lines between these columns:
+        
+        def map_reference_x(ref_x):
+            # Reference width (cw) was 857 at ZOOM=2
+            return int(ref_x * (cw / 857.0))
+            
+        pt_start = find_nearest_vline(map_reference_x(218))
+        len_start = find_nearest_vline(map_reference_x(293))
+        ns_start = find_nearest_vline(map_reference_x(344))
+        item_start = find_nearest_vline(map_reference_x(400))
+        spool_start = find_nearest_vline(map_reference_x(490))
+        
+        # Enforce Contiguous Boundaries
+        if "PIECE NO" in col_bounds:
+            col_bounds["PIECE NO"][1] = pt_start
+        if "PT NO" in col_bounds:
+            col_bounds["PT NO"][0] = pt_start
+            col_bounds["PT NO"][1] = len_start
+        if "LENGTH (MM)" in col_bounds:
+            col_bounds["LENGTH (MM)"][0] = len_start
+            col_bounds["LENGTH (MM)"][1] = ns_start
+        if "N.S. (INS)" in col_bounds:
+            col_bounds["N.S. (INS)"][0] = ns_start
+            col_bounds["N.S. (INS)"][1] = item_start
+        if "ITEM NO" in col_bounds:
+            col_bounds["ITEM NO"][0] = item_start
+            col_bounds["ITEM NO"][1] = spool_start
+        if "SPOOL NO" in col_bounds:
+            col_bounds["SPOOL NO"][0] = spool_start
+
+    # Refine QTY
+    if header_bboxes["QTY"] and "QTY" in col_bounds:
+        q_left, q_right = header_bboxes["QTY"]
+        q_left_bound = find_nearest_vline(q_left - 10)
+        q_right_bound = find_nearest_vline(q_right + 10)
+        col_bounds["QTY"] = [q_left_bound, q_right_bound]
+        if "ITEM CODE" in col_bounds:
+            col_bounds["ITEM CODE"][1] = min(col_bounds["ITEM CODE"][1], q_left_bound)
+
+    # Group rows
+    if title_y is None: return {"headers": headers, "rows": []}
+    data_items = [it for it in items if it["yc"] > title_y + 10]
     
-    # Sadece başlık satırının ALTINDAKI öğeleri al
-    data_items = [it for it in items if it["y"] > title_y + 10]
+    lines = []
+    data_items.sort(key=lambda x: x["yc"])
+    if not data_items: return {"headers": headers, "rows": []}
     
-    if not data_items:
-        return {"headers": headers, "rows": []}
+    current = [data_items[0]]
+    for it in data_items[1:]:
+        if abs(it["yc"] - current[0]["yc"]) <= 10:
+            current.append(it)
+        else:
+            lines.append(sorted(current, key=lambda x: x["xc"]))
+            current = [it]
+    lines.append(sorted(current, key=lambda x: x["xc"]))
     
-    # Y toleransı: satır yüksekliğinin yarısı (~8-10 px)
-    y_tol = ch * 0.012
-    if y_tol < 8:
-        y_tol = 8
-    
-    # Satırlara grupla
-    lines = group_by_lines(data_items, y_tol)
-    
-    # İlk satır sütun başlığı ise atla
-    if lines:
-        first_line_text = " ".join([it["text"] for it in lines[0]])
-        if is_column_header(first_line_text):
-            col_ranges = adjust_col_ranges_dynamically(lines[0], col_ranges)
-            lines = lines[1:]
-    
-    # Her satırı işle
     result_rows = []
     
+    def cell_ocr(x_min, x_max, row_y_min, row_y_max, allow=''):
+        crop_x1, crop_x2 = max(0, int(x_min)), min(cw, int(x_max))
+        crop_y1, crop_y2 = max(0, int(row_y_min)-4), min(ch, int(row_y_max)+4)
+        
+        # Add padding so easyocr can read text touching vertical lines
+        pad_x = 8
+        cx1 = max(0, int(crop_x1) - pad_x)
+        cx2 = min(img_np.shape[1], int(crop_x2) + pad_x)
+        
+        if crop_x2 <= crop_x1 or crop_y2 <= crop_y1: return ""
+        cell = img_np[crop_y1:crop_y2, cx1:cx2]
+        if cell.size == 0: return ""
+        scaled = cv2.resize(cell, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+        gray_cell = cv2.cvtColor(scaled, cv2.COLOR_RGB2GRAY)
+        res = reader.readtext(gray_cell, allowlist=allow, detail=1)
+        if not res: return ""
+        valid_res = []
+        cell_h = (crop_y2 - crop_y1) * 3
+        target_y = cell_h / 2
+        
+        for b, t, c in res:
+            if c < 0.2: continue
+            t_strip = t.strip()
+            if not t_strip: continue
+            if allow == '0123456789' and not any(ch.isdigit() for ch in t_strip):
+                continue
+            
+            # Reject tokens that are bleeding from the adjacent column on the right
+            token_x_center = (b[0][0] + b[1][0]) / 2
+            if token_x_center > cell.shape[1] * 3 * 0.85:
+                continue
+            
+            token_y_center = (b[0][1] + b[2][1]) / 2
+            dist = abs(token_y_center - target_y)
+            valid_res.append((b, t_strip, c, dist))
+            
+        if not valid_res: return ""
+        # Sort by distance to center (ascending), then confidence (descending)
+        valid_res.sort(key=lambda x: (x[3], -x[2]))
+        
+        best_val = valid_res[0][1]
+        print(f"DEBUG cell_ocr({x_min}, {x_max}, {row_y_min}, {row_y_max}) -> {best_val}")
+        return best_val
+
+    print(f"DEBUG TABLE {table_name} BOUNDS: {col_bounds}")
+
     for line_items in lines:
-        # Satır metnini oluştur
+        if len(line_items) < 1: continue
+        
         line_text = " ".join([it["text"] for it in line_items])
-        
-        # Sütun başlığı satırlarını atla
-        if is_column_header(line_text):
+        if is_column_header(line_text) or is_garbled_header(line_text) or is_table_title(line_text, title_kw):
             continue
-        
-        # Garbled (bozuk OCR) başlık satırlarını atla
-        if is_garbled_header(line_text):
-            continue
-        
-        # Tablo başlığı satırlarını atla
-        if is_table_title(line_text, title_kw):
-            continue
-        
-        # Çok düşük güvenilirlikli satırları atla
+            
         avg_conf = sum(it["conf"] for it in line_items) / len(line_items)
-        if avg_conf < 0.15:
-            continue
-        
-        # Tablo dışı metinleri filtrele (sol kenardan gelen çizim metinleri)
-        table_items = [it for it in line_items if it["x_norm"] >= 0.02]
-        if not table_items:
-            continue
+        if avg_conf < 0.15: continue
         
         # Kategori kontrolü
-        if len(table_items) <= 2:
-            combined = " ".join([it["text"] for it in table_items])
-            if is_category_text(combined):
-                result_rows.append(("category", combined.strip().upper()))
+        if len(line_items) <= 2:
+            if is_category_text(line_text):
+                result_rows.append(("category", line_text.strip().upper()))
                 continue
-        
-        if len(table_items) == 1:
-            if is_category_text(table_items[0]["text"]):
-                result_rows.append(("category", table_items[0]["text"].strip().upper()))
-                continue
-        
-        # Sütunlara ata
-        cols = [""] * num_cols
-        col_texts = {i: [] for i in range(num_cols)}
-        
-        for item in sorted(table_items, key=lambda x: x["x"]):
-            ci = get_col_idx(item["x_norm"], col_ranges)
-            col_texts[ci].append(item["text"])
-        
-        for i in range(num_cols):
-            cols[i] = " ".join(col_texts[i]).strip()
-            
-        # P/L NO Fallback OCR
-        if table_name == "FABRICATION MATERIALS" and not cols[0] and pl_no_header_bounds:
-            row_y_min = min((it["bbox"][0][1] for it in table_items), default=-1)
-            row_y_max = max((it["bbox"][2][1] for it in table_items), default=-1)
-            if row_y_min >= 0:
-                import cv2
-                crop_x1 = max(0, pl_no_header_bounds[0] - 8)
-                crop_x2 = min(cw, pl_no_header_bounds[1] + 8)
-                crop_y1 = max(0, int(row_y_min) - 6)
-                crop_y2 = min(ch, int(row_y_max) + 6)
                 
-                if crop_x2 > crop_x1 and crop_y2 > crop_y1:
-                    sub_crop = np.array(cropped)[crop_y1:crop_y2, crop_x1:crop_x2]
-                    if sub_crop.size > 0:
-                        upscaled = cv2.resize(sub_crop, (0, 0), fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
-                        gray = cv2.cvtColor(upscaled, cv2.COLOR_RGB2GRAY)
-                        
-                        fallback_res = reader.readtext(gray, allowlist='0123456789', detail=1)
-                        if fallback_res:
-                            best_fallback = max(fallback_res, key=lambda x: x[2])
-                            cols[0] = best_fallback[1]
-                            
-                            debug_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scratch", "debug", "pl_no")
-                            os.makedirs(debug_dir, exist_ok=True)
-                            cv2.imwrite(os.path.join(debug_dir, f"crop_row_{crop_y1}_res_{cols[0]}.png"), gray)
+        row_y_min = min(it["bbox"][0][1] for it in line_items)
+        row_y_max = max(it["bbox"][2][1] for it in line_items)
         
-        # Gürültü satırlarını atla
+        cols = [""] * num_cols
+        for i, col_name in enumerate(col_names):
+            bound = col_bounds[col_name]
+            
+            # Cell-Level OCR overrides for critical columns
+            if col_name == pt_no_key:
+                val = cell_ocr(bound[0], bound[1], row_y_min, row_y_max, '0123456789')
+                if val: cols[i] = val
+                continue
+            if col_name == "LENGTH (MM)":
+                val = cell_ocr(bound[0], bound[1], row_y_min, row_y_max, '0123456789.')
+                if val: cols[i] = val
+                continue
+            if col_name == "QTY":
+                val = cell_ocr(bound[0], bound[1], row_y_min, row_y_max, '0123456789.')
+                if val: cols[i] = val
+                continue
+                
+            # General OCR matching for others
+            col_text = ""
+            for it in line_items:
+                if bound[0] <= it["xc"] < bound[1]:
+                    raw = it["text"]
+                    if col_name == "ITEM CODE":
+                        pass
+                    col_text += raw + " "
+            cols[i] = col_text.strip()
+            
+            # Fallback Cell-Level OCR for Item Code if empty but shouldn't be
+            if col_name == "ITEM CODE" and not cols[i]:
+                val = cell_ocr(bound[0], bound[1], row_y_min, row_y_max, '0123456789')
+                if val: cols[i] = val
+
         if is_noise_row(cols, table_name):
+            if any(c for c in cols):
+                result_rows.append(("NOISE", cols))
             continue
-        
-        # En az bir sütunda anlamlı veri varsa ekle
+            
+        # Row validation for CUT PIPE LENGTH
+        if table_name == "CUT PIPE LENGTH":
+            has_item = bool(cols[4].strip())  # ITEM NO is at index 4
+            has_spool = bool(cols[5].strip()) # SPOOL NO is at index 5
+            has_pt = bool(cols[1].strip())    # PT NO is at index 1
+            
+            if not has_item and not has_spool and not has_pt:
+                if any(c for c in cols):
+                    result_rows.append(("NOISE", cols))
+                continue
+            elif not (has_item and has_spool):
+                result_rows.append(("INCOMPLETE", cols))
+                continue
+            else:
+                result_rows.append(("data", cols))
+                continue
+            
         if any(c for c in cols):
             result_rows.append(("data", cols))
     
@@ -828,6 +1082,21 @@ def process_pdf(pdf_path, pdf_name):
         
         td = parse_table_region(img, tname)
         
+        # APPLY PHASE 2A: SPOOL CANONICALIZATION
+        if tname == "CUT PIPE LENGTH":
+            for i, row in enumerate(td["rows"]):
+                if row[0] in ["data", "INCOMPLETE"]:
+                    cols = row[1]
+                    raw_spool = cols[5]
+                    canon = canonicalize_spool(raw_spool, base_drawing, yolo_spools)
+                    
+                    # Store piece no validation as well for Phase 2B prep
+                    piece_no_val = validate_piece_no(cols[0])
+                    
+                    # Convert to rich objects
+                    cols[0] = piece_no_val
+                    cols[5] = canon
+                    
         dc = len([r for r in td["rows"] if r[0] == "data"])
         cc = len([r for r in td["rows"] if r[0] == "category"])
         print(f"{dc} veri, {cc} kategori")
@@ -853,236 +1122,243 @@ def extract_bom_data_to_json(pdf_path, pdf_name):
     yolo_spools = result.get("yolo_spools", [])
     yolo_pieces = result.get("yolo_pieces", [])
     
-    rows = []
-    
-    def clean_item_code(code):
-        code = str(code).strip()
-        if not code: return code
-        
-        # OCR Hata Düzeltmeleri
-        code = re.sub(r'([A-Z])[Il1][Oo]([A-Z\-])', r'\g<1>10\g<2>', code) # P1O, PIO -> P10
-        code = re.sub(r'([A-Z])[Il](0)([A-Z\-])', r'\g<1>10\g<3>', code)   # PI0 -> P10
-        
-        # Dinamik sütun ayarlaması sayesinde artık Item Code'ların başındaki "I" 
-        # (ki OCR bunu genellikle 1, l veya I olarak okur) kesilmeden tam geliyor.
-        # Örneğin: PDF'de I1209668 yazıyor, OCR 11209668 okuyor.
-        # ERP_STRIP_PREFIX açıksa bu baştaki karakteri atıyoruz.
-        if ERP_STRIP_PREFIX:
-            # Baştaki 1, I veya l harfini (ve varsa yanındaki 0'ı) sil
-            code = re.sub(r'^[1Il]0?', '', code)
-            return code
-            
-        # Eğer şirket öneki tutmak istiyorsa, OCR'ın okuduğu 1'i I yap
-        code = re.sub(r'^[1l](\d{3,})', r'I\1', code)
-            
-        return code
+    # 1. Mock Master DB for Domain Normalization
+    MASTER_CODES = {"2467784", "535745", "2467617", "2467614", "15722", "11196253"}
 
-    # 1. CUT PIPE LENGTH verilerini parse edip Pipe'lar için Assembly ve SubAssembly bulalım
+    def normalize_item_code(raw_code):
+        raw_code = raw_code.strip()
+        candidate = raw_code
+        status = "RAW"
+        rule = None
+        evidence = []
+        
+        if len(raw_code) == 8 and raw_code.startswith("1"):
+            hyp_candidate = raw_code[1:]
+            if hyp_candidate in MASTER_CODES:
+                candidate = hyp_candidate
+                rule = "FABRICATION_PREFIX_HYPOTHESIS"
+                evidence.append("Length is 8 and starts with 1")
+                evidence.append(f"Candidate {hyp_candidate} exact match in MASTER_CODES")
+                status = "VERIFIED_CANDIDATE"
+            else:
+                candidate = raw_code
+                rule = "FABRICATION_PREFIX_HYPOTHESIS_FAILED"
+                evidence.append("Length is 8 and starts with 1")
+                evidence.append(f"Hypothesis {hyp_candidate} NOT found in MASTER_CODES. Reverting to raw.")
+                status = "RAW_FALLBACK"
+                
+        return {
+            "raw": raw_code,
+            "candidate": candidate,
+            "rule": rule,
+            "evidence": evidence,
+            "status": status
+        }
+
+    def mock_spatial_association(pl_no):
+        # We integrate the real YOLO spatial association here
+        import math
+        norm_pl_no = re.sub(r'[^0-9A-Z\-]', '', str(pl_no))
+        if norm_pl_no and yolo_spools and yolo_pieces:
+            matching_pieces = [p for p in yolo_pieces if p["text"] == norm_pl_no]
+            if matching_pieces:
+                # Use the first matched piece marker
+                p = matching_pieces[0]
+                px, py = (p["box"][0]+p["box"][2])/2, (p["box"][1]+p["box"][3])/2
+                best_dist = float('inf')
+                best_spool = ""
+                for s in yolo_spools:
+                    sx, sy = (s["box"][0]+s["box"][2])/2, (s["box"][1]+s["box"][3])/2
+                    dist = math.hypot(px - sx, py - sy)
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_spool = s["text"]
+                
+                if best_spool and best_dist < 600:
+                    # Format spool
+                    f_sp = best_spool
+                    if base_drawing not in f_sp:
+                        if "SP" in f_sp:
+                            sp_match = re.search(r'(SP\d+)', f_sp)
+                            if sp_match:
+                                f_sp = f"{base_drawing}-{sp_match.group(1)}"
+                            else:
+                                f_sp = f"{base_drawing}-{f_sp}"
+                    
+                    return {
+                        "spool": f_sp,
+                        "method": "SPATIAL_PROXIMITY_AND_MARKER",
+                        "score": 0.85,
+                        "status": "SPATIAL_HIGH_CONFIDENCE",
+                        "reason": f"Piece marker {norm_pl_no} localized, nearest spool {f_sp} within margin"
+                    }
+        
+        return {
+            "spool": None,
+            "method": "SPATIAL_WEAK",
+            "score": 0.0,
+            "status": "UNRESOLVED",
+            "reason": "Weak spatial candidate, no localized piece marker found"
+        }
+
+    # 2. Build CUT PIPE Lookup
     cut_pipes = []
-    last_piece_no = "" # Forward-fill için
+    cut_dict = {}
     if "CUT PIPE LENGTH" in tables and tables["CUT PIPE LENGTH"]["rows"]:
         for rtype, rdata in tables["CUT PIPE LENGTH"]["rows"]:
             if rtype == "data" and len(rdata) >= 6:
-                piece_no, pt_no, length, ns, item_no, spool_no = rdata[:6]
+                p_dict = rdata[0] if isinstance(rdata[0], dict) else {}
+                piece_no = p_dict.get("normalized", p_dict.get("raw", rdata[0]))
+                if isinstance(piece_no, dict): piece_no = piece_no.get("normalized", piece_no.get("raw", ""))
+                piece_no = str(piece_no).strip()
                 
-                # Sütunlar bazen birbirine karışabiliyor, PT NO'yu (<1-1> veya <5> gibi) bulmak için hepsine bakalım
-                combined_text = f"{piece_no} {pt_no} {length} {ns}".replace("'", "").replace('"', '')
-                pt_match = re.search(r'<([A-Za-z0-9-]+)>', combined_text)
-                if pt_match:
-                    pt_no = pt_match.group(1)
-                else:
-                    pt_no = pt_no.strip()
-
-                # LENGTH'i bulalım (sadece sayılardan oluşan kısmı al)
-                raw_length_str = re.sub(r'<[^>]*>', '', length).strip()
-                if not raw_length_str and ns:
-                    # length boşaldıysa ns içinden length'i alalım
-                    nums = re.findall(r'\b\d{2,5}\b', ns)
-                    if nums:
-                        length = nums[0]
-                    else:
-                        length = ns.strip()
-                elif raw_length_str:
-                    # length içinde rakam kaldıysa (örn: "1183" veya "M44812000")
-                    nums = re.findall(r'\b\d{2,5}\b', raw_length_str)
-                    if nums:
-                        length = nums[0]
-                    else:
-                        match = re.search(r'\d{2,5}', raw_length_str)
-                        length = match.group(0) if match else raw_length_str
-
-                # PIECE NO'dan <1-1> gibi kısımları temizle
-                piece_no = re.sub(r'<[^>]*>', '', piece_no).strip()
-
-                # PIECE NO Forward-fill mantığı (alt satırlarda boşsa üsttekinden alır)
-                if piece_no:
-                    last_piece_no = piece_no
-                else:
-                    piece_no = last_piece_no
+                pt_no = str(rdata[1]).strip()
+                pt_match = re.search(r'<([A-Za-z0-9-]+)>', pt_no)
+                if pt_match: pt_no = pt_match.group(1)
                 
-                # Item No temizliği
-                item_no = clean_item_code(item_no)
+                raw_length_str = re.sub(r'<[^>]*>', '', str(rdata[2])).strip()
+                length = raw_length_str
                 
-                # Spool no'yu düzenle (örn: 10-FG...-SPO1 -> 10-FG...-SP01)
-                spool_no = spool_no.replace('PO', 'P0').replace('SPO', 'SP0')
-                # OCR O (harf) ile 0 (sıfır) karıştırması: C0001 -> COOO1 gibi
-                # İçinde harf+O+ olan yerleri bulup O'ları 0'a çeviriyoruz (COO01 -> C0001)
-                spool_no = re.sub(r'([A-Z])([O]+)(\d*)', lambda m: m.group(1) + '0'*len(m.group(2)) + m.group(3), spool_no)
+                item_no = str(rdata[4]).strip()
                 
-                # Akıllı Spool Ön Ek Eklemesi
-                if spool_no and base_drawing not in spool_no:
-                    # Tabloda sadece SP01 gibi kısa bir kod varsa
-                    if "SP" in spool_no:
-                        sp_match = re.search(r'(SP\d+)', spool_no)
-                        if sp_match:
-                            spool_no = f"{base_drawing}-{sp_match.group(1)}"
-                        else:
-                            spool_no = f"{base_drawing}-{spool_no}"
+                sp_dict = rdata[5] if isinstance(rdata[5], dict) else {}
+                spool_no = sp_dict.get("canonical_spool", sp_dict.get("raw_spool", str(rdata[5])))
+                if not spool_no or isinstance(spool_no, dict): spool_no = str(rdata[5]).strip()
                 
-                cut_pipes.append({
+                c_pipe = {
                     "piece_no": piece_no,
                     "pt_no": pt_no,
                     "item_no": item_no,
                     "spool_no": spool_no,
                     "length": length
-                })
+                }
+                cut_pipes.append(c_pipe)
+                if item_no not in cut_dict: cut_dict[item_no] = []
+                cut_dict[item_no].append(c_pipe)
 
-    # 2. FABRICATION & ERECTION MATERIALS
+    rows = []
+    
+    # 3. Association Engine for Fabrication Materials
     for tname in ["FABRICATION MATERIALS", "ERECTION MATERIALS"]:
         if tname not in tables or not tables[tname]["rows"]:
             continue
             
-        current_category = ""
+        current_category = "UNKNOWN"
         for rtype, rdata in tables[tname]["rows"]:
             if rtype == "category":
                 current_category = rdata
                 continue
                 
             if rtype == "data" and len(rdata) >= 7:
-                pl_no = rdata[0].strip()
-                desc = rdata[1].strip()
-                item_code = clean_item_code(rdata[3].strip())
-                alt_code = clean_item_code(rdata[4].strip())
-                if (not item_code or "X" in item_code.upper()) and alt_code:
-                    item_code = alt_code
+                pl_raw = rdata[0]
+                if isinstance(pl_raw, dict): pl_raw = pl_raw.get("normalized", pl_raw.get("raw", ""))
+                pl_no = str(pl_raw).strip()
                 
-                qty = rdata[5].strip()
-                weight = rdata[6].strip()
+                desc = str(rdata[1]).strip()
+                raw_item = str(rdata[3]).strip()
+                qty = str(rdata[5]).strip()
+                weight = str(rdata[6]).strip()
                 
-                # Eğer bu bir boru (PIPE) ise ve CUT PIPE LENGTH tablosunda detayları varsa, detayları satır olarak ekle
-                if "PIPE" in current_category and cut_pipes:
-                    # piece_no (1) ile Fabrication'daki pl_no (1) eşleşmeli VEYA item_code eşleşmeli
-                    pipes_found = [p for p in cut_pipes if (p["piece_no"] == pl_no and pl_no != "") or (p["item_no"] == item_code and item_code != "")]
-                    if pipes_found:
-                        for p in pipes_found:
-                            row_dict = {
-                                "id": "",
-                                "technical_drawing": tech_drawing,
-                                "assembly": p["spool_no"],
-                                "assembly_description": "",
-                                "assembly_weight": "",
-                                "assembly_qty": "1",
-                                "sub_assembly": p["pt_no"],
-                                "sub_assembly_defination": desc,
-                                "item_code": item_code, # Ana borudan (Fabrication tablosundan) miras alınır
-                                "qty": p["length"], # Borular için adet yerine uzunluk yazılabilir
-                                "unit_weight": weight,
-                                "pose_no": "",
-                                "giris_yapan": "",
-                                "giris_tarihi": ""
-                            }
-                            rows.append(row_dict)
-                        continue # Pipe parçalarını alt parçalar olarak ekledik, ana Pipe satırını atla
-                
-                # Spool (Assembly) Tahmini (Association Architecture)
-                import math
-                norm_pl_no = re.sub(r'[^0-9A-Z\-]', '', pl_no)
-                auto_spool = ""
-                assoc_method = "UNRESOLVED"
-                assoc_score = 0.0
-                assoc_reason = "No matching piece_no or context found"
-
-                # 1. CUT PIPE LENGTH CROSS-REFERENCE (IF PIPE)
-                if "PIPE" in current_category and cut_pipes:
-                    pipe_candidates = [p for p in cut_pipes if p.get("spool_no")]
-                    exact_pipes = [p for p in pipe_candidates if p["item_no"] == item_code and p["pt_no"].strip("<>") == norm_pl_no]
-                    if exact_pipes:
-                        auto_spool = exact_pipes[0]["spool_no"]
-                        assoc_method = "CUT_PIPE_CROSS_REFERENCE"
-                        assoc_score = 1.0
-                        assoc_reason = f"Matched pipe PT NO {norm_pl_no} and Item Code {item_code}"
-
-                # 2. PIECE NO BBOX PROXIMITY
-                if not auto_spool and norm_pl_no and yolo_spools and yolo_pieces:
-                    # Normalize YOLO pieces
-                    matching_pieces = [p for p in yolo_pieces if p["text"] == norm_pl_no]
+                # SUPPORTS filtresi
+                if "SUPPORT" in current_category.upper() or raw_item.upper().startswith("X"):
+                    continue
                     
-                    if matching_pieces:
-                        best_dist = float('inf')
-                        second_best_dist = float('inf')
-                        best_spool = None
+                # A. Domain Normalization
+                norm_data = normalize_item_code(raw_item)
+                lookup_code = norm_data["candidate"]
+                
+                trace = {
+                    "piece_no": pl_no,
+                    "item_code_raw": norm_data["raw"],
+                    "item_code_normalized": lookup_code,
+                    "normalization_status": norm_data["status"],
+                    "category": current_category,
+                    "spool": None,
+                    "method": None,
+                    "score": 0.0,
+                    "status": "UNRESOLVED",
+                    "reason": ""
+                }
+                
+                # B. Category Routing & Association
+                if "PIPE" in current_category.upper():
+                    candidates = cut_dict.get(lookup_code, [])
+                    if len(candidates) == 1:
+                        trace["spool"] = candidates[0]["spool_no"]
+                        trace["method"] = "DETERMINISTIC_CROSS_REF"
+                        trace["score"] = 1.0
+                        trace["status"] = "STRONG_DETERMINISTIC"
+                        trace["reason"] = f"Exact item match '{lookup_code}' in CUT PIPE with unique spool candidate"
                         
-                        for p in matching_pieces:
-                            px, py = (p["box"][0]+p["box"][2])/2, (p["box"][1]+p["box"][3])/2
-                            for s in yolo_spools:
-                                sx, sy = (s["box"][0]+s["box"][2])/2, (s["box"][1]+s["box"][3])/2
-                                dist = math.hypot(px - sx, py - sy)
-                                if dist < best_dist:
-                                    second_best_dist = best_dist
-                                    best_dist = dist
-                                    best_spool = s["text"]
-                                elif dist < second_best_dist:
-                                    second_best_dist = dist
+                        # Add Pipe sub-pieces as well
+                        row_dict = {
+                            "id": "",
+                            "technical_drawing": tech_drawing,
+                            "assembly": candidates[0]["spool_no"],
+                            "assembly_description": "",
+                            "assembly_weight": "",
+                            "assembly_qty": "1",
+                            "sub_assembly": candidates[0]["pt_no"],
+                            "sub_assembly_defination": desc,
+                            "item_code": norm_data["raw"],
+                            "qty": "1.0",
+                            "unit_weight": weight,
+                            "pose_no": "",
+                            "giris_yapan": "",
+                            "giris_tarihi": "",
+                            "_debug": trace
+                        }
+                        rows.append(row_dict)
+                        continue # Pipe parçalarını alt parçalar olarak ekledik, ana Pipe satırını atla
                         
-                        if best_spool:
-                            # Dynamic threshold checking
-                            margin_ratio = second_best_dist / max(best_dist, 1)
-                            if best_dist < 600 and margin_ratio > 1.2:
-                                auto_spool = best_spool
-                                assoc_method = "PIECE_TO_SPOOL_PROXIMITY"
-                                assoc_score = round(1.0 / (1.0 + best_dist/100), 2)
-                                assoc_reason = f"Nearest spool to piece {norm_pl_no} (dist={int(best_dist)}px, margin={round(margin_ratio,1)}x)"
-                            else:
-                                assoc_reason = f"Distance={int(best_dist)}px or low margin={round(margin_ratio,1)}x -> Unreliable"
+                    elif len(candidates) > 1:
+                        trace["spool"] = "BİLİNMEYEN (MULTIPLE CUT PIPE)"
+                        trace["method"] = "DETERMINISTIC_CROSS_REF"
+                        trace["score"] = 0.5
+                        trace["status"] = "AMBIGUOUS"
+                        trace["reason"] = f"Multiple CUT PIPE candidates ({len(candidates)}) found for item '{lookup_code}'"
                     else:
-                        assoc_reason = f"Piece {norm_pl_no} not found by YOLO"
-
-                if auto_spool and base_drawing not in auto_spool:
-                    if "SP" in auto_spool:
-                        sp_match = re.search(r'(SP\d+)', auto_spool)
-                        if sp_match:
-                            auto_spool = f"{base_drawing}-{sp_match.group(1)}"
-                        else:
-                            auto_spool = f"{base_drawing}-{auto_spool}"
-
-                # False positive filter
-                desc_upper = desc.upper()
-                if item_code == "" and qty in ["", "QTY"] and desc_upper in ["CLIENT", "WEIGHT", "DESCRIPTION", "SUPPORIS", ""]:
-                    continue # Garbage row
-
-                # Diğer materyaller (Fittings, Flanges, vb.)
+                        spatial_res = mock_spatial_association(pl_no)
+                        trace["spool"] = spatial_res["spool"] if spatial_res["spool"] else "BİLİNMEYEN (SPATIAL FAIL)"
+                        trace["method"] = f"SPATIAL_FALLBACK ({spatial_res['method']})"
+                        trace["score"] = spatial_res["score"]
+                        trace["status"] = spatial_res["status"]
+                        trace["reason"] = f"No CUT PIPE match for '{lookup_code}'. Fallback: {spatial_res['reason']}"
+                        
+                elif any(c in current_category.upper() for c in ["FITTNGS", "FITTINGS", "FLANGES"]):
+                    spatial_res = mock_spatial_association(pl_no)
+                    trace["spool"] = spatial_res["spool"] if spatial_res["spool"] else "BİLİNMEYEN (SPATIAL FAIL)"
+                    trace["method"] = spatial_res["method"]
+                    trace["score"] = spatial_res["score"]
+                    trace["status"] = spatial_res["status"]
+                    trace["reason"] = f"Category '{current_category}' bypasses CUT PIPE. {spatial_res['reason']}"
+                else:
+                    trace["spool"] = "BİLİNMEYEN (UNKNOWN CAT)"
+                    trace["status"] = "UNRESOLVED"
+                    trace["reason"] = f"Unknown category '{current_category}'"
+                
+                # Emit row
+                try:
+                    total_qty = int(float(qty))
+                except:
+                    total_qty = 1
+                    
                 row_dict = {
                     "id": "",
                     "technical_drawing": tech_drawing,
-                    "assembly": auto_spool,
+                    "assembly": trace["spool"],
                     "assembly_description": "",
                     "assembly_weight": "",
                     "assembly_qty": "1",
-                    "sub_assembly": norm_pl_no if norm_pl_no else "",
+                    "sub_assembly": re.sub(r'[^0-9A-Z\-]', '', str(pl_no)),
                     "sub_assembly_defination": desc,
-                    "item_code": item_code,
-                    "qty": qty if qty else "1",
+                    "item_code": norm_data["raw"],
+                    "qty": str(total_qty) + ".0",
                     "unit_weight": weight,
                     "pose_no": "",
                     "giris_yapan": "",
                     "giris_tarihi": "",
-                    "_debug": {
-                        "pl_no": pl_no,
-                        "item_code": item_code,
-                        "assoc_method": assoc_method,
-                        "assoc_score": assoc_score,
-                        "assoc_reason": assoc_reason
-                    }
+                    "_debug": trace
                 }
                 rows.append(row_dict)
 

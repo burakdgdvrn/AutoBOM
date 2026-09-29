@@ -105,7 +105,21 @@ document.addEventListener('DOMContentLoaded', function() {
             minRows: 40, // Increased to 40 to fill the black void with spreadsheet cells
             licenseKey: 'non-commercial-and-evaluation',
             afterChange: updateBadge,
-            afterLoadData: updateBadge
+            afterLoadData: updateBadge,
+            cells: function (row, col, prop) {
+                var cellProperties = {};
+                cellProperties.renderer = function (instance, td, row, col, prop, value, cellProperties) {
+                    Handsontable.renderers.TextRenderer.apply(this, arguments);
+                    
+                    const rowData = instance.getSourceDataAtRow(row);
+                    if (rowData && typeof rowData.assembly === 'string' && rowData.assembly.includes('BİLİNMEYEN')) {
+                        td.classList.add('unknown-row-highlight');
+                    } else {
+                        td.classList.remove('unknown-row-highlight');
+                    }
+                };
+                return cellProperties;
+            }
         });
     }
 

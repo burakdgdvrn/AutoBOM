@@ -39,3 +39,5 @@ scripts/
 colab_results/
 models/
 data/roboflow_images/
+scratch/
+cell_crops/

@@ -443,3 +443,17 @@ input:checked + .slider:before {
 .wtHolder::-webkit-scrollbar-thumb:hover {
     background: var(--text-muted);
 }
+
+/* YOLO Unknown Highlight */
+.handsontable td.unknown-row-highlight,
+.handsontable .htCore td.unknown-row-highlight {
+    background-color: rgba(255, 59, 48, 0.1) !important;
+    color: #FF3B30 !important;
+    font-weight: 700 !important;
+}
+
+[data-bs-theme="dark"] .handsontable td.unknown-row-highlight,
+[data-bs-theme="dark"] .handsontable .htCore td.unknown-row-highlight {
+    background-color: rgba(255, 69, 58, 0.2) !important;
+    color: #FF453A !important;
+}
