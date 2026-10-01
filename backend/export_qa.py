@@ -87,9 +87,9 @@ def generate_qa_excel(report_data, output_path):
         ("Toplam Master Excel Satırı:", stats.get("total_excel", 0), ""),
         ("", "", ""),
         ("Kusursuz Eşleşenler:", stats.get("perfect_matches", 0), "Sistemin mükemmel çalıştığı satırlar."),
+        ("Item & Sub Eşleşenler:", stats.get("item_sub_matches", 0), "Item Code ve Sub Assembly doğru, ancak diğer kısımlar (Örn. Spool) farklı."),
         ("Kaçırılanlar (Debug Gerekli):", stats.get("missed_by_ai", 0), "Kodun/OCR'ın göremediği eksikler. Bu sekmeye odaklanın."),
-        ("AI Ekstraları (Kazançlar):", stats.get("extra_by_ai", 0), "Manuel süreçte es geçilen ama AI'ın affetmediği detaylar."),
-        ("Hücre Uyuşmazlıkları:", stats.get("cell_discrepancies", 0), "Kısmen eşleşen ama bazı hücreleri (Spool, Miktar vb) farklı olanlar.")
+        ("AI Ekstraları (Kazançlar):", stats.get("extra_by_ai", 0), "Manuel süreçte es geçilen ama AI'ın affetmediği detaylar.")
     ]
 
     for r_idx, (label, val, desc) in enumerate(summary_rows, 3):
@@ -110,14 +110,22 @@ def generate_qa_excel(report_data, output_path):
     extra_data = [[r.get("technical_drawing"), r.get("ai_assembly"), r.get("ai_sub_assembly"), r.get("ai_item_code"), r.get("ai_qty"), r.get("desc")] for r in report_data.get("extra_by_ai", [])]
     create_styled_sheet(wb, "🔵 AI ÜSTÜNLÜĞÜ", "0070C0", ["Technical Drawing", "Assembly", "Sub Assembly", "Item Code", "AI Qty", "Açıklama"], extra_data)
 
-    # 4. HÜCRE UYUŞMAZLIKLARI
-    diff_data = [[r.get("technical_drawing"), r.get("ex_assembly"), r.get("ai_assembly"), r.get("ex_sub_assembly"), r.get("ai_sub_assembly"), r.get("ex_item_code"), r.get("ai_item_code"), r.get("ex_qty"), r.get("ai_qty")] for r in report_data.get("cell_discrepancies", [])]
-    create_styled_sheet(wb, "🟡 UYUŞMAZLIKLAR", "FFC000", ["Technical Drawing", "Ex Assembly", "AI Assembly", "Ex Sub", "AI Sub", "Ex Item", "AI Item", "Ex Qty", "AI Qty"], diff_data)
+    # 4. ITEM & SUB EŞLEŞENLER
+    item_sub_data = [[r.get("technical_drawing"), r.get("ex_assembly"), r.get("ai_assembly"), r.get("ex_sub_assembly"), r.get("ai_sub_assembly"), r.get("ex_item_code"), r.get("ai_item_code"), r.get("ex_qty"), r.get("ai_qty")] for r in report_data.get("item_sub_matches", [])]
+    create_styled_sheet(wb, "🟡 ITEM-SUB EŞLEŞENLER", "FFC000", ["Technical Drawing", "Ex Assembly", "AI Assembly", "Ex Sub", "AI Sub", "Ex Item", "AI Item", "Ex Qty", "AI Qty"], item_sub_data)
 
     # 5. KUSURSUZ EŞLEŞENLER
     perfect_data = [[r.get("technical_drawing"), r.get("ai_assembly"), r.get("ai_sub_assembly"), r.get("ai_item_code"), r.get("ai_qty")] for r in report_data.get("perfect_matches", [])]
     create_styled_sheet(wb, "🟢 EŞLEŞENLER", "00B050", ["Technical Drawing", "Assembly", "Sub Assembly", "Item Code", "Qty"], perfect_data)
 
-    # 6. HAM VERİLER (İsteğe Bağlı eklenebilir ama şu an arayüzde var)
-    
+    # 6. HAM EXCEL VERİSİ
+    raw_excel = report_data.get("raw_filtered_excel", [])
+    raw_ex_data = [[r.get("Technical Drawing"), r.get("Assembly"), r.get("Sub Assembly"), r.get("Item Code"), r.get("Qty")] for r in raw_excel]
+    create_styled_sheet(wb, "📑 HAM TEKNİKER VERİSİ", "7F7F7F", ["Technical Drawing", "Assembly", "Sub Assembly", "Item Code", "Qty"], raw_ex_data)
+
+    # 7. HAM AI VERİSİ
+    raw_ai = report_data.get("raw_ai_data", [])
+    raw_ai_data = [[r.get("technical_drawing"), r.get("assembly"), r.get("sub_assembly"), r.get("item_code"), r.get("qty")] for r in raw_ai]
+    create_styled_sheet(wb, "🤖 HAM AI VERİSİ", "7F7F7F", ["Technical Drawing", "Assembly", "Sub Assembly", "Item Code", "Qty"], raw_ai_data)
+
     wb.save(output_path)

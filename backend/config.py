@@ -73,7 +73,7 @@ TABLE_CONFIGS = {
 # Kategori başlıkları (tam eşleşme veya çok kısa olmalı)
 CATEGORY_KEYWORDS_EXACT = {
     "PIPE", "FITTINGS", "FLANGES", "BOLTS", "GASKETS",
-    "SUPPORTS", "SPECIAL ITEMS",
+    "SUPPORTS", "SPECIAL ITEMS", "INSTRUMENTS",
 }
 # Prefix eşleşme (sadece bu prefix ile başlayıp sonrası kısa olmalı)
 CATEGORY_PREFIXES = [

@@ -187,61 +187,72 @@ const Toast = Swal.mixin({
 
 // --- PDF Upload ---
 window.handlePDFUpload = async function(event) {
-    const file = event.target.files[0];
-    if (!file) return;
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
 
     const spinner = document.getElementById('upload-spinner');
+    const spinnerText = spinner ? spinner.querySelector('h4') : null;
+    
     if (spinner) spinner.classList.remove('hidden');
 
-    const formData = new FormData();
-    formData.append('pdf', file);
+    let allNewRows = [];
+    let errorCount = 0;
 
-    try {
-        console.log("Uploading file to local API...", file.name);
-        const response = await fetch('http://localhost:5000/api/process-bom', {
-            method: 'POST',
-            body: formData
-        });
-
-        if (!response.ok) {
-            throw new Error("Sunucu hatası: " + response.statusText);
-        }
-
-        const data = await response.json();
-        console.log("Sunucudan dönen veri:", data);
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (spinnerText) spinnerText.innerText = `İşleniyor (${i + 1}/${files.length}):\n${file.name}`;
         
-        if (data.status === 'success' && data.rows) {
-            const currentData = hot.getSourceData();
-            const filteredData = currentData.filter(r => r && (r.technical_drawing || r.assembly || r.sub_assembly || r.item_code));
-            
-            const newRows = data.rows;
-            hot.loadData([...filteredData, ...newRows]);
-            
-            setTimeout(() => hot.render(), 100);
-            
-            Toast.fire({
-                icon: 'success',
-                title: `${newRows.length} satır başarıyla eklendi.`
-            });
-        } else {
-            Toast.fire({
-                icon: 'error',
-                title: 'İşlem Başarısız',
-                text: "Sunucu bir hata döndürdü: " + (data.message || "Bilinmeyen hata"),
-            });
-        }
+        const formData = new FormData();
+        formData.append('pdf', file);
 
-    } catch (error) {
-        console.error("PDF işleme hatası:", error);
+        try {
+            console.log("Uploading file to local API...", file.name);
+            const response = await fetch('http://localhost:5000/api/process-bom', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                console.error("Sunucu hatası:", file.name, response.statusText);
+                errorCount++;
+                continue;
+            }
+
+            const data = await response.json();
+            
+            if (data.status === 'success' && data.rows) {
+                allNewRows.push(...data.rows);
+            } else {
+                console.error("API'den hata döndü:", file.name, data.message);
+                errorCount++;
+            }
+        } catch (error) {
+            console.error("Yükleme sırasında hata:", file.name, error);
+            errorCount++;
+        }
+    }
+
+    if (allNewRows.length > 0) {
+        const currentData = hot.getSourceData();
+        const filteredData = currentData.filter(r => r && (r.technical_drawing || r.assembly || r.sub_assembly || r.item_code));
+        
+        hot.loadData([...filteredData, ...allNewRows]);
+        setTimeout(() => hot.render(), 100);
+        
+        Toast.fire({
+            icon: 'success',
+            title: `${files.length} dosya işlendi, ${allNewRows.length} satır eklendi.` + (errorCount > 0 ? ` (${errorCount} hata)` : '')
+        });
+    } else {
         Toast.fire({
             icon: 'error',
-            title: 'Bağlantı Hatası',
-            text: "Sunucunun (app.py) çalıştığından emin olun. \nDetay: " + error.message,
+            title: 'İşlem Başarısız',
+            text: "Hiçbir PDF dosyasından veri çıkarılamadı."
         });
-    } finally {
-        if (spinner) spinner.classList.add('hidden');
-        event.target.value = '';
     }
+
+    if (spinner) spinner.classList.add('hidden');
+    event.target.value = '';
 };
 
 // --- Clear Table ---
@@ -435,7 +446,7 @@ window.handleExcelCompare = async function(event) {
             // Update score cards
             document.getElementById('stat-perfect').innerText = res.stats.perfect_matches;
             document.getElementById('stat-extra').innerText = res.stats.extra_by_ai;
-            document.getElementById('stat-diff').innerText = res.stats.cell_discrepancies;
+            document.getElementById('stat-diff').innerText = res.stats.item_sub_matches;
             document.getElementById('stat-missed').innerText = res.stats.missed_by_ai;
             
             // Table fill helper
@@ -468,7 +479,7 @@ window.handleExcelCompare = async function(event) {
                 const tbody = document.getElementById(id);
                 tbody.innerHTML = '';
                 if(arr.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="6" class="text-center py-4" style="color: var(--text-tertiary);">Uyuşmazlık bulunamadı.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6" class="text-center py-4" style="color: var(--text-tertiary);">Eşleşme bulunamadı.</td></tr>';
                     return;
                 }
                 
@@ -518,7 +529,7 @@ window.handleExcelCompare = async function(event) {
             
             fillTable('tbody-missed', res.missed_by_ai, 'missed');
             fillTable('tbody-extra', res.extra_by_ai, 'extra');
-            fillDiffTable('tbody-diff', res.cell_discrepancies);
+            fillDiffTable('tbody-diff', res.item_sub_matches);
             fillTable('tbody-perfect', res.perfect_matches, 'perfect');
             
             fillRawTable('tbody-raw-ex', res.raw_filtered_excel || [], true);

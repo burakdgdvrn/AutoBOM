@@ -41,3 +41,8 @@ models/
 data/roboflow_images/
 scratch/
 cell_crops/
+
+# AI Context & Navigation Files
+AI_NAVIGATION.md
+AI_CONTEXT.md
+**/AI_CONTEXT.md

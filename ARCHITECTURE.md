@@ -1,7 +1,7 @@
 # 🏗️ Havatek ERP - PDF BOM Otomasyon Sistemi: Mimari Rehber
 
-> **Son Güncelleme:** 29 Eylül 2026  
-> **Versiyon:** v3.0 (Modüler Mimari)  
+> **Son Güncelleme:** 1 Ekim 2026  
+> **Versiyon:** v3.1 (Modüler Mimari — Kod Temizliği Sonrası)  
 > **Durum:** ✅ Tüm modüller test edildi, sistem stabil çalışıyor
 
 ---
@@ -18,7 +18,8 @@
 8. [Modül Bağımlılık Haritası](#-modül-bağımlılık-haritası)
 9. [Fonksiyon Referansı](#-fonksiyon-referansı)
 10. [Yapılandırma ve Kalibrasyon](#-yapılandırma-ve-kalibrasyon)
-11. [Kurulum ve Çalıştırma](#-kurulum-ve-çalıştırma)
+11. [Scripts (Yardımcı Araçlar)](#-scripts-yardımcı-araçlar)
+12. [Kurulum ve Çalıştırma](#-kurulum-ve-çalıştırma)
 
 ---
 
@@ -36,6 +37,7 @@ Bu sistem, endüstriyel boru hattı (piping) teknik çizim PDF'lerinden **BOM (B
 - 🔍 **OCR** (EasyOCR) ile tablo metinlerini okuma
 - 🤖 **YOLOv26s** ile çizim üzerindeki spool/piece etiketlerini tespit etme
 - 🧠 **Spatial Engine** ile parça-spool ilişkilendirme (mekansal yakınlık analizi)
+- 🎯 **Candidate Resolution** ile master veritabanından item code çözümleme
 - 📊 **Excel** çıktısı (renk kodlu BOM raporu)
 - 🌐 **Web arayüzü** (Flask API + Handsontable tabanlı ERP ekranı)
 - 🔄 **Karşılaştırma** (AI çıktısı vs Master Excel)
@@ -46,36 +48,56 @@ Bu sistem, endüstriyel boru hattı (piping) teknik çizim PDF'lerinden **BOM (B
 
 ```
 PDF okuma/
-├── backend/                    # 🧠 Tüm iş mantığı
-│   ├── config.py               #    Yapılandırma sabitleri
-│   ├── ocr_utils.py            #    OCR motoru ve yardımcı fonksiyonlar
-│   ├── table_parser.py         #    Tablo bölgesi ayrıştırma
-│   ├── excel_writer.py         #    Excel yazma
-│   ├── pdf_to_excel.py         #    Ana orchestration (process_pdf, extract_bom)
-│   ├── spatial_engine.py       #    Mekansal parça-spool ilişkilendirme
-│   ├── compare_bom.py          #    AI vs Master Excel karşılaştırma
-│   ├── export_qa.py            #    QA raporu Excel'i oluşturma
-│   └── app.py                  #    Flask API sunucusu
+├── backend/                       # 🧠 Tüm iş mantığı (12 modül)
+│   ├── config.py                  #    Yapılandırma sabitleri
+│   ├── ocr_utils.py               #    OCR motoru ve yardımcı fonksiyonlar
+│   ├── table_parser.py            #    Tablo bölgesi ayrıştırma
+│   ├── excel_writer.py            #    Excel yazma
+│   ├── pdf_to_excel.py            #    Ana orchestration (process_pdf, extract_bom)
+│   ├── spatial_engine.py          #    Mekansal parça-spool ilişkilendirme
+│   ├── candidate_resolution.py    #    Master DB'den item code aday çözümleme
+│   ├── master_indexer.py          #    Master Excel indeksleme motoru
+│   ├── compare_bom.py             #    AI vs Master Excel karşılaştırma
+│   ├── export_qa.py               #    QA raporu Excel'i oluşturma
+│   ├── cutting_table_reader.py    #    ⚠️ El yazısı cutting table okuma (henüz entegre değil)
+│   └── app.py                     #    Flask API sunucusu
 │
-├── frontend/                   # 🖥️ Web arayüzü
-│   ├── ERP Sistemi.html        #    Ana HTML sayfası
-│   ├── custom_erp.css          #    Stil dosyası
-│   └── custom_erp.js           #    JavaScript (Handsontable + API)
+├── frontend/                      # 🖥️ Web arayüzü
+│   ├── ERP Sistemi.html           #    Ana HTML sayfası (Bootstrap 5 + Handsontable)
+│   ├── custom_erp.css             #    Stil dosyası (dark/light tema, glassmorphism)
+│   └── custom_erp.js              #    JavaScript (Handsontable grid + API iletişimi)
 │
-├── models/                     # 🤖 Eğitilmiş AI modelleri
-│   └── pdf_read_yolov26s.pt    #    YOLO modeli (spool_label + piece_no)
+├── models/                        # 🤖 Eğitilmiş AI modelleri
+│   └── pdf_read_yolov26s.pt       #    YOLO modeli (spool_label, piece_no, cutting_table)
 │
-├── data/                       # 📁 Veri dizinleri
-│   ├── input_pdfs/PDFler/      #    Girdi PDF'leri buraya konur
-│   ├── master_excel/           #    Referans Excel (karşılaştırma için)
-│   ├── outputs/                #    Çıktı Excel'leri (sonuc.xlsx)
-│   └── roboflow_images/        #    YOLO eğitim verileri
+├── data/                          # 📁 Veri dizinleri
+│   ├── input_pdfs/PDFler/         #    Girdi PDF'leri buraya konur
+│   ├── master_excel/              #    Referans Excel (karşılaştırma için)
+│   ├── outputs/                   #    Çıktı Excel'leri (sonuc.xlsx)
+│   └── roboflow_images/           #    YOLO eğitim verileri (114 PNG)
 │
-├── scripts/                    # 🔧 Yardımcı scriptler
-├── venv/                       # 🐍 Python sanal ortam
-├── requirements.txt            # 📦 Python bağımlılıkları
-├── Çalıştır.bat                # ▶️ Tek tıkla başlatma
-└── ARCHITECTURE.md             # 📖 Bu dosya
+├── scripts/                       # 🔧 Yardımcı scriptler (YOLO eğitimi, veri hazırlığı)
+│   ├── generate_dataset.py        #    PDF'lerden cutting table eğitim dataseti üret
+│   ├── generate_from_images.py    #    PNG'lerden cutting table eğitim dataseti üret
+│   ├── clean_blanks.py            #    Boş hücre görüntülerini temizle
+│   ├── prepare_roboflow_data.py   #    PDF'leri Roboflow formatına dönüştür
+│   └── scripts_backup/            #    Eski script yedekleri
+│
+├── scratch/                       # 🧪 Geçici test/debug çıktıları
+│   ├── debug/                     #    Debug çıktıları
+│   └── excel_result/              #    Test Excel sonuçları
+│
+├── colab_results/                 # 📊 Google Colab YOLO eğitim sonuçları
+│   ├── pdf_okuma_sonuç.png        #    Genel eğitim sonuç grafiği
+│   └── sınıf_bazında_sonuç.png    #    Sınıf bazında performans
+│
+├── venv/                          # 🐍 Python sanal ortam
+├── requirements.txt               # 📦 Python bağımlılıkları
+├── Çalıştır.bat                   # ▶️ Tek tıkla başlatma
+├── README.md                      # 📖 Proje Genel README (GitHub için)
+├── ARCHITECTURE.md                # 📖 Mimari Rehber (Bu dosya)
+├── AI_NAVIGATION.md               # 🤖 AI Yönlendirme Haritası (Git-ignored)
+└── **/AI_CONTEXT.md               # 🤖 Her klasör için AI bağlam ve kural dosyaları (Git-ignored)
 ```
 
 ---
@@ -102,12 +124,18 @@ graph TD
         TP["table_parser.py<br/>(Tablo Ayrıştırma)"]
         EW["excel_writer.py<br/>(Excel Yazma)"]
         SE["spatial_engine.py<br/>(Mekansal Analiz)"]
+        CR["candidate_resolution.py<br/>(Aday Çözümleme)"]
+        MI["master_indexer.py<br/>(Master DB İndeks)"]
         CB["compare_bom.py<br/>(Karşılaştırma)"]
         QA["export_qa.py<br/>(QA Raporu)"]
     end
 
+    subgraph "Henüz Entegre Değil"
+        CTR["cutting_table_reader.py<br/>(El Yazısı Cutting Table)"]
+    end
+
     subgraph "AI Modelleri"
-        YOLO["YOLOv26s Model<br/>(spool_label, piece_no)"]
+        YOLO["YOLOv26s Model<br/>(spool_label, piece_no, cutting_table)"]
         EOCR["EasyOCR<br/>(İngilizce metin)"]
     end
 
@@ -122,11 +150,15 @@ graph TD
     APP -->|"/api/process-bom"| PDF
     APP -->|"/api/compare"| CB
     APP -->|"/api/export-qa-report"| QA
+    APP -->|"/api/test-yolo"| OCR
 
     PDF --> OCR
     PDF --> TP
     PDF --> EW
     PDF --> SE
+    PDF --> CR
+    PDF --> MI
+    CR --> MI
 
     OCR --> CFG
     TP --> CFG
@@ -157,8 +189,9 @@ flowchart LR
     F --> G["🧹 Gürültü Filtreleme<br/>(is_noise_row)"]
     G --> H["🔗 Spool Canonicalize<br/>(canonicalize_spool)"]
     H --> I["🧠 Spatial Engine<br/>(run_spatial_engine)"]
-    I --> J["📋 BOM Association<br/>(extract_bom_data_to_json)"]
-    J --> K["📊 Excel Çıktı<br/>(write_bom_excel)"]
+    I --> J["🎯 Candidate Resolution<br/>(resolve_candidates)"]
+    J --> K["📋 BOM Association<br/>(extract_bom_data_to_json)"]
+    K --> L["📊 Excel Çıktı<br/>(write_bom_excel)"]
 ```
 
 ### Aşama Detayları
@@ -172,15 +205,17 @@ flowchart LR
 | 5 | Gürültü Filtre | `ocr_utils.py` | `is_noise_row()` | Boyut notları, header kırıntıları, el yazısı kalıntıları |
 | 6 | Spool Normal. | `ocr_utils.py` | `canonicalize_spool()` | SPO1→SP01, O→0 düzeltme, YOLO doğrulama |
 | 7 | Spatial Analiz | `spatial_engine.py` | `run_spatial_engine()` | Parça marker'larını spool'lara mekansal yakınlıkla eşle |
-| 8 | BOM Birleştirme | `pdf_to_excel.py` | `extract_bom_data_to_json()` | Tüm tabloları birleştir, cross-reference yap |
-| 9 | Excel Yazma | `excel_writer.py` | `write_bom_excel()` | Renk kodlu, filtrelenebilir Excel raporu |
+| 8 | Item Code Norm. | `pdf_to_excel.py` | `normalize_item_code()` | Item code normalizasyonu + master DB doğrulama |
+| 9 | Candidate Res. | `candidate_resolution.py` | `resolve_candidates()` | Progressive filtering ile master DB'den en iyi aday seç |
+| 10 | BOM Birleştirme | `pdf_to_excel.py` | `extract_bom_data_to_json()` | Tüm tabloları birleştir, cross-reference yap, aggregate |
+| 11 | Excel Yazma | `excel_writer.py` | `write_bom_excel()` | Renk kodlu, filtrelenebilir Excel raporu |
 
 ---
 
 ## 🧩 Backend Modülleri (Detaylı)
 
 ### 1. `config.py` — Yapılandırma Sabitleri
-**Satır Sayısı:** ~80  
+**Satır Sayısı:** ~83  
 **Bağımlılık:** Yok (temel modül)  
 **Import Eden:** `ocr_utils.py`, `table_parser.py`, `excel_writer.py`
 
@@ -190,7 +225,6 @@ Bu modül tüm sabit değerleri ve yapılandırmaları barındırır. Yeni bir t
 |----------------|----------|
 | `BASE_DIR`, `PDF_FOLDER`, `OUTPUT_FILE` | Proje yolları |
 | `ZOOM` | PDF render zoom seviyesi (3 = ~450 DPI) |
-| `ERP_STRIP_PREFIX` | Item Code öneklerini silme/düzeltme stratejisi |
 | `REGIONS` | Tablo bölge koordinatları (normalize x1,y1,x2,y2) |
 | `FAB_EREC_COLS` | Fabrication/Erection Materials sütun sınırları |
 | `CUT_PIPE_COLS` | Cut Pipe Length sütun sınırları |
@@ -201,9 +235,9 @@ Bu modül tüm sabit değerleri ve yapılandırmaları barındırır. Yeni bir t
 ---
 
 ### 2. `ocr_utils.py` — OCR Motoru & Yardımcı Fonksiyonlar
-**Satır Sayısı:** ~370  
+**Satır Sayısı:** ~498  
 **Bağımlılık:** `config.py`  
-**Import Eden:** `table_parser.py`, `pdf_to_excel.py`
+**Import Eden:** `table_parser.py`, `pdf_to_excel.py`, `cutting_table_reader.py`
 
 Sistemin **en kritik** modülü. OCR motorunu başlatır, YOLO modelini lazy-load eder, tüm metin temizleme/doğrulama mantığını içerir.
 
@@ -222,8 +256,6 @@ Sistemin **en kritik** modülü. OCR motorunu başlatır, YOLO modelini lazy-loa
 | `is_category_text()` | Metin bir kategori başlığı mı? (fuzzy matching dahil) |
 | `is_noise_row()` | Satır gürültü mü? (boyut notu, header kırıntısı) |
 | `crop_region()` | Görüntüden bölge kırp |
-| `group_by_lines()` | OCR öğelerini Y koordinatına göre satırlara grupla |
-| `adjust_col_ranges_dynamically()` | Başlık X konumlarına göre sütun sınırlarını dinamik ayarla |
 
 #### Spool Canonicalization Akışı
 ```
@@ -238,7 +270,7 @@ Canonical: "10-FG-502430-2001-P1401-SP01"  ✅ VALID
 ---
 
 ### 3. `table_parser.py` — Tablo Bölgesi Ayrıştırma
-**Satır Sayısı:** ~290  
+**Satır Sayısı:** ~368  
 **Bağımlılık:** `config.py`, `ocr_utils.py`  
 **Import Eden:** `pdf_to_excel.py`
 
@@ -274,7 +306,7 @@ Aşama 3: OpenCV Vertical Lines → Sütun sınırlarını dikey çizgilerle do�
 ---
 
 ### 4. `excel_writer.py` — Excel Yazma
-**Satır Sayısı:** ~110  
+**Satır Sayısı:** ~126  
 **Bağımlılık:** `config.py`  
 **Import Eden:** `pdf_to_excel.py`
 
@@ -282,7 +314,7 @@ BOM verilerini renk kodlu Excel dosyasına yazar.
 
 | Renk Kodu | Durum | Anlamı |
 |-----------|-------|--------|
-| 🟢 `#E2EFDA` | STRONG_DETERMINISTIC / VALID | Kesin eşleşme |
+| 🟢 `#E2EFDA` | STRONG_DETERMINISTIC / VALID / SPATIAL_HIGH_CONFIDENCE | Kesin eşleşme |
 | 🟡 `#FFF2CC` | AMBIGUOUS | Belirsiz (birden fazla aday) |
 | 🔴 `#FCE4D6` | UNRESOLVED | Çözülemedi |
 | ⬜ `#FFFFFF` | UNKNOWN | Bilinmiyor |
@@ -290,8 +322,8 @@ BOM verilerini renk kodlu Excel dosyasına yazar.
 ---
 
 ### 5. `pdf_to_excel.py` — Ana Orchestrator
-**Satır Sayısı:** ~310 (eski: ~1458)  
-**Bağımlılık:** `config.py`, `ocr_utils.py`, `table_parser.py`, `excel_writer.py`, `spatial_engine.py`  
+**Satır Sayısı:** ~565  
+**Bağımlılık:** `config.py`, `ocr_utils.py`, `table_parser.py`, `excel_writer.py`, `spatial_engine.py`, `candidate_resolution.py`, `master_indexer.py`  
 **Import Eden:** `app.py`
 
 Tüm modülleri birleştiren orkestrasyon katmanı. Dışarıdan çağrılan **3 ana fonksiyon** sunar:
@@ -302,16 +334,30 @@ Tüm modülleri birleştiren orkestrasyon katmanı. Dışarıdan çağrılan **3
 | `extract_bom_data_to_json(pdf_path, pdf_name)` | `app.py` | PDF → düz JSON listesi (API yanıtı için) |
 | `main()` | CLI | Toplu işleme: tüm PDF'leri oku → tek Excel çıktısı |
 
+#### İç Fonksiyonlar
+
+| Fonksiyon | Açıklama |
+|-----------|----------|
+| `normalize_item_code(raw_code, description)` | Item code normalizasyonu: Master DB'de aranır, `1` prefix hipotezi test edilir |
+| `emit_row(assembly_spool, emit_qty, trace_dict, fab_data)` | Çıktı satırı oluşturur ve `rows` listesine ekler |
+
 #### Association (İlişkilendirme) Stratejisi
 ```
-PIPE kategorisi → CUT PIPE LENGTH tablosundaki ITEM NO ile cross-reference
-    ├── 1 eşleşme → STRONG_DETERMINISTIC ✅
-    ├── N eşleşme → AMBIGUOUS ⚠️
-    └── 0 eşleşme → UNRESOLVED ❌
+1. Phase 4: Candidate Resolution (resolve_candidates)
+   ├── HIGH_CONFIDENCE → Doğrudan ata ✅
+   └── AMBIGUOUS / UNRESOLVED → Aşağıdaki fallback'lere geç
 
-FITTINGS/FLANGES → Spatial Engine ile mekansal yakınlık
-    ├── Marker bulundu → SPATIAL_HIGH_CONFIDENCE ✅
-    └── Marker yok → UNRESOLVED ❌
+2. PIPE kategorisi → CUT PIPE LENGTH tablosundaki ITEM NO ile cross-reference
+   ├── 1 eşleşme → STRONG_DETERMINISTIC ✅
+   ├── N eşleşme → AMBIGUOUS ⚠️
+   └── 0 eşleşme → UNRESOLVED ❌
+
+3. FITTINGS/FLANGES/GASKETS/BOLTS → Spatial Engine ile mekansal yakınlık
+   ├── Marker bulundu → SPATIAL_HIGH_CONFIDENCE ✅
+   ├── Tek spool varsa → SINGLE_SPOOL_FALLBACK ✅
+   └── Marker yok → UNRESOLVED ❌
+
+4. Aggregation: Aynı (Assembly, Sub Assembly, Item Code) key'e sahip satırlar birleştirilir
 ```
 
 ---
@@ -322,6 +368,8 @@ FITTINGS/FLANGES → Spatial Engine ile mekansal yakınlık
 **Import Eden:** `pdf_to_excel.py`
 
 Teknik çizimdeki parça numaralarını, mekansal konumlarına göre en yakın spool etiketine atar.
+
+> ⚠️ **Not:** Bu modül kendi bağımsız `easyocr.Reader` instance'ını oluşturur (`gpu=True`). Bu, `ocr_utils.py`'deki reader'dan ayrıdır.
 
 | Bileşen | Açıklama |
 |---------|----------|
@@ -339,24 +387,75 @@ total_score = marker_score + spool_proximity_score + ocr_confidence + dimension_
 
 ---
 
-### 7. `compare_bom.py` — BOM Karşılaştırma
-**Satır Sayısı:** ~217  
+### 7. `candidate_resolution.py` — Aday Çözümleme Motoru
+**Satır Sayısı:** ~213  
+**Bağımlılık:** `master_indexer.py`  
+**Import Eden:** `pdf_to_excel.py`
+
+Item code'un master veritabanındaki birden fazla adayı arasından en doğrusunu seçen **progressive filtering** motoru.
+
+#### Filtreleme Aşamaları
+```
+1. Technical Drawing Context → base_drawing ile assembly eşleşmesi
+2. Category Context → kategori string eşleşmesi
+3. Spatial/Cut Pipe Context → spatial_spool veya cut_pipe_spool ile assembly eşleşmesi
+4. Description Scoring → SequenceMatcher ile açıklama benzerliği
+```
+
+#### Temel Fonksiyonlar
+
+| Fonksiyon | Açıklama |
+|-----------|----------|
+| `resolve_candidates(context)` | Ana çözümleme: context dict → {status, top1, top2, margin} |
+| `dry_run_description(desc)` | Item code olmadan sadece description ile master DB'de arama |
+| `normalize_description(desc)` | Description metnini normalize et |
+| `get_base_drawing(dwg)` | Çizim adından base kısmı çıkar |
+
+#### Çıktı Durumları
+| Status | Anlamı |
+|--------|--------|
+| `HIGH_CONFIDENCE` | Top1 aday yeterli farkla önde |
+| `AMBIGUOUS` | Birden fazla aday birbirine çok yakın skorda |
+| `UNRESOLVED` | Hiç aday bulunamadı veya skor eşik altında |
+
+---
+
+### 8. `master_indexer.py` — Master Veritabanı İndeksleyici
+**Satır Sayısı:** ~75  
+**Bağımlılık:** Bağımsız (pandas)  
+**Import Eden:** `candidate_resolution.py`, `pdf_to_excel.py`
+
+Master Excel dosyasını okuyup iki ayrı indeks oluşturur: Item Code İndeksi ve Description İndeksi. **Lazy loading** kullanır (ilk çağrıda yüklenir, sonraki çağrılarda cache'ten döner).
+
+| Fonksiyon | Açıklama |
+|-----------|----------|
+| `load_master_index()` | Master Excel'i oku ve iki indeks oluştur |
+| `get_master_candidates(item_code)` | Item code ile aday kayıtları getir |
+| `find_master_by_description(description)` | Description ile aday kayıtları getir (fuzzy) |
+
+> ⚠️ **Bilinen Sorun:** `MASTER_EXCEL_PATH` hardcoded Windows yolu kullanıyor. `config.py`'deki `BASE_DIR` ile dinamik hale getirilmesi önerilir.
+
+---
+
+### 9. `compare_bom.py` — BOM Karşılaştırma
+**Satır Sayısı:** ~223  
 **Bağımlılık:** Bağımsız (pandas)  
 **Import Eden:** `app.py`
 
-AI'ın çıkardığı BOM verilerini Master Excel ile hücre bazlı karşılaştırır.
+AI'ın çıkardığı BOM verilerini Master Excel ile hücre bazlı heuristik karşılaştırır.
 
 | Çıktı Kategorisi | Açıklama |
 |-------------------|----------|
 | `perfect_matches` | Tüm alanlar birebir eşleşen satırlar |
-| `cell_discrepancies` | Kısmen eşleşen ama bazı hücreleri farklı olanlar |
+| `item_sub_matches` | Item Code ve Sub Assembly doğru ama diğer alanlar farklı |
+| `other_discrepancies` | Hücre bazlı farklılıklar |
 | `extra_by_ai` | AI'ın bulduğu ama Excel'de olmayan satırlar |
 | `missed_by_ai` | Excel'de olan ama AI'ın bulamadığı satırlar |
 
 ---
 
-### 8. `export_qa.py` — QA Raporu Oluşturucu
-**Satır Sayısı:** ~124  
+### 10. `export_qa.py` — QA Raporu Oluşturucu
+**Satır Sayısı:** ~132  
 **Bağımlılık:** Bağımsız (openpyxl)  
 **Import Eden:** `app.py`
 
@@ -367,12 +466,35 @@ Karşılaştırma sonuçlarını çok sayfalı, renk kodlu bir Excel raporuna d�
 | ANALİZ ÖZETİ | ⬛ Siyah | İstatistik özeti |
 | 🔴 KAÇIRILANLAR | 🔴 Kırmızı | AI'ın kaçırdığı satırlar + debug notları |
 | 🔵 AI ÜSTÜNLÜĞÜ | 🔵 Mavi | AI'ın ekstra bulduğu satırlar |
-| 🟡 UYUŞMAZLIKLAR | 🟡 Sarı | Hücre bazlı farklılıklar |
+| 🟡 ITEM-SUB EŞLEŞENLER | 🟡 Sarı | Item & Sub doğru ama diğerleri farklı |
 | 🟢 EŞLEŞENLER | 🟢 Yeşil | Kusursuz eşleşmeler |
+| 📑 HAM TEKNİKER VERİSİ | ⚫ Gri | Master Excel ham verisi |
+| 🤖 HAM AI VERİSİ | ⚫ Gri | AI ham verisi |
 
 ---
 
-### 9. `app.py` — Flask API Sunucusu
+### 11. `cutting_table_reader.py` — El Yazısı Cutting Table Okuyucu
+**Satır Sayısı:** ~526  
+**Bağımlılık:** `ocr_utils.py` (dolaylı, `get_yolo_model` kullanır)  
+**Import Eden:** ⚠️ **Henüz hiçbir modülden import edilmiyor**
+
+> ⚠️ **Durum:** Bu modül bağımsız olarak çalışabilir ancak `pdf_to_excel.py`'ye henüz entegre edilmemiştir. El yazısı cutting table'ları TrOCR (Transformer OCR) ile okumak için hazırlanmıştır.
+
+| Bileşen | Açıklama |
+|---------|----------|
+| `_get_trocr()` | TrOCR modelini lazy load et (microsoft/trocr-base-handwritten) |
+| `trocr_read_cell()` | Tek hücreyi TrOCR ile oku |
+| `_detect_blue_grid()` | HSV mavi filtre ile grid çizgilerini tespit et |
+| `_identify_columns()` | Dikey çizgilerden sütun sınırlarını belirle |
+| `_postprocess_spool()` | SPOOL değerini düzelt (SPO1→SP01) |
+| `_postprocess_cut_no()` | CUT NO değerini düzelt (OCR hataları) |
+| `_postprocess_cut_length()` | CUT LENGTH değerini düzelt (mm cinsinden) |
+| `read_cutting_table()` | Cutting table crop'undan SPOOL, CUT NO, CUT LENGTH oku |
+| `extract_cutting_table_from_pdf()` | Tam PDF'den YOLO ile cutting table bul ve oku |
+
+---
+
+### 12. `app.py` — Flask API Sunucusu
 **Satır Sayısı:** ~167  
 **Bağımlılık:** `pdf_to_excel.py`, `compare_bom.py`, `export_qa.py`  
 **Port:** 5000
@@ -386,6 +508,26 @@ Karşılaştırma sonuçlarını çok sayfalı, renk kodlu bir Excel raporuna d�
 
 ---
 
+## 🖥️ Frontend
+
+Web arayüzü 3 dosyadan oluşur ve tamamen statiktir (build gerektirmez):
+
+| Dosya | Boyut | Açıklama |
+|-------|-------|----------|
+| `ERP Sistemi.html` | 15.6 KB | Ana sayfa: Bootstrap 5, Handsontable, SweetAlert2, FontAwesome |
+| `custom_erp.css` | 23.5 KB | Glassmorphism tema, dark/light mod, responsive tasarım |
+| `custom_erp.js` | 25.5 KB | Handsontable grid yönetimi, API iletişimi, dosya upload/download |
+
+### Frontend Özellikleri
+- 🌓 Dark/Light tema geçişi (localStorage'da saklanır)
+- 📊 Handsontable ile düzenlenebilir BOM tablosu
+- 📤 PDF yükleme ve işleme
+- 🔄 Master Excel ile karşılaştırma
+- 📥 QA raporu indirme
+- 🤖 YOLO test arayüzü
+
+---
+
 ## 🔗 Modül Bağımlılık Haritası
 
 ```mermaid
@@ -396,9 +538,12 @@ graph BT
     EW["excel_writer.py"]
     PDF["pdf_to_excel.py"]
     SE["spatial_engine.py"]
+    CR["candidate_resolution.py"]
+    MI["master_indexer.py"]
     CB["compare_bom.py"]
     QA["export_qa.py"]
     APP["app.py"]
+    CTR["cutting_table_reader.py<br/>(entegre değil)"]
 
     OCR --> CFG
     TP --> CFG
@@ -408,16 +553,23 @@ graph BT
     PDF --> TP
     PDF --> EW
     PDF --> SE
+    PDF --> CR
+    PDF --> MI
+    CR --> MI
     APP --> PDF
     APP --> CB
     APP --> QA
+    CTR -.->|"dolaylı"| OCR
+
+    style CTR fill:#FFF2CC,stroke:#FFC000
 ```
 
 ### Bağımsız Modüller (Hiçbir backend modülünü import etmez)
 - `config.py` — Temel yapılandırma
-- `spatial_engine.py` — Mekansal analiz
+- `spatial_engine.py` — Mekansal analiz (kendi OCR reader'ı var)
 - `compare_bom.py` — Karşılaştırma
 - `export_qa.py` — QA rapor oluşturucu
+- `master_indexer.py` — Master DB indeksleme
 
 ---
 
@@ -438,7 +590,11 @@ graph BT
       "item_code": "15722",
       "qty": "1.0",
       "unit_weight": "5.50",
-      "_debug": { "status": "STRONG_DETERMINISTIC", "method": "DETERMINISTIC_CROSS_REF" }
+      "_debug": {
+        "status": "STRONG_DETERMINISTIC",
+        "method": "DETERMINISTIC_CROSS_REF",
+        "phase4_resolution": { "status": "HIGH_CONFIDENCE", "margin": 1.5 }
+      }
     }
   ]
 }
@@ -488,9 +644,6 @@ graph BT
 | `is_column_header()` | text | bool | Sütun başlığı satırı mı? |
 | `is_garbled_header()` | text | bool | Bozuk OCR header mı? |
 | `is_noise_row()` | cols, table_name | bool | Gürültü satırı mı? |
-| `get_col_idx()` | x_norm, col_ranges | int | X pozisyonundan sütun indeksi |
-| `adjust_col_ranges_dynamically()` | header_items, ranges | list | Dinamik sütun sınırı ayarı |
-| `group_by_lines()` | items, y_tolerance | list | Y koordinatına göre satır gruplama |
 
 ### table_parser.py
 | Fonksiyon | Parametreler | Dönüş | Açıklama |
@@ -516,6 +669,19 @@ graph BT
 | `detect_markers()` | img_np | list[dict] | OpenCV marker tespiti |
 | `get_marker_for_token()` | t_bbox, t_text, shapes, all_tokens | dict | Token marker eşlemesi |
 
+### candidate_resolution.py
+| Fonksiyon | Parametreler | Dönüş | Açıklama |
+|-----------|-------------|-------|----------|
+| `resolve_candidates()` | context (dict) | dict | Progressive filtering ile aday çözümleme |
+| `dry_run_description()` | desc (str) | dict | Sadece description ile master DB araması |
+
+### master_indexer.py
+| Fonksiyon | Parametreler | Dönüş | Açıklama |
+|-----------|-------------|-------|----------|
+| `load_master_index()` | - | (dict, dict) | Master Excel'i oku ve indeksle |
+| `get_master_candidates()` | item_code | list[dict] | Item code ile aday kayıtları getir |
+| `find_master_by_description()` | description | list[dict] | Description ile aday araması |
+
 ### compare_bom.py
 | Fonksiyon | Parametreler | Dönüş | Açıklama |
 |-----------|-------------|-------|----------|
@@ -525,6 +691,7 @@ graph BT
 | Fonksiyon | Parametreler | Dönüş | Açıklama |
 |-----------|-------------|-------|----------|
 | `generate_qa_excel()` | report_data, output_path | None | QA raporu Excel oluştur |
+| `create_styled_sheet()` | wb, title, tab_color, headers, data | ws | Formatlanmış Excel sayfası |
 
 ---
 
@@ -545,6 +712,27 @@ Kırpılmış bölge içindeki normalize X koordinatları. Kalibrasyon OCR debug
 
 ### OCR Düzeltme Sözlüğü (`ocr_utils.py` → `fix_ocr_text()`)
 Yeni OCR hataları tespit edildiğinde buraya eklenmelidir.
+
+### Candidate Resolution Eşikleri (`candidate_resolution.py`)
+```python
+RESOLUTION_CONFIG = {
+    "MIN_SCORE_THRESHOLD": 1.0,   # Minimum toplam skor
+    "MARGIN_THRESHOLD": 0.5       # Top1 - Top2 arası minimum fark
+}
+```
+
+---
+
+## 🔧 Scripts (Yardımcı Araçlar)
+
+`scripts/` klasöründeki araçlar **ana sisteme dahil değildir**. YOLO model eğitimi ve veri hazırlığı için kullanılır:
+
+| Script | Açıklama |
+|--------|----------|
+| `generate_dataset.py` | PDF'lerden cutting table hücrelerini kırparak eğitim dataseti üretir |
+| `generate_from_images.py` | PNG'lerden (roboflow_images) cutting table eğitim dataseti üretir |
+| `clean_blanks.py` | Boş/yazısız hücre görüntülerini datasetten temizler |
+| `prepare_roboflow_data.py` | PDF'leri PNG'ye çevirip Roboflow etiketleme için hazırlar |
 
 ---
 

@@ -110,84 +110,74 @@ def extract_bom_data_to_json(pdf_path, pdf_name):
     yolo_spools = result.get("yolo_spools", [])
     yolo_pieces = result.get("yolo_pieces", [])
     
-    # 1. Mock Master DB for Domain Normalization
-    MASTER_CODES = {"2467784", "535745", "2467617", "2467614", "15722", "11196253"}
+    from master_indexer import get_master_candidates, find_master_by_description
 
-    def normalize_item_code(raw_code):
+    def normalize_item_code(raw_code, description=""):
         raw_code = raw_code.strip()
         candidate = raw_code
         status = "RAW"
         rule = None
         evidence = []
+        master_match = False
+        master_candidates = []
         
-        if len(raw_code) == 8 and raw_code.startswith("1"):
+        if not raw_code:
+            desc_cands = find_master_by_description(description)
+            if desc_cands:
+                evidence.append(f"Dry-run description match found {len(desc_cands)} candidates.")
+                status = "EMPTY_DESC_MATCH"
+            else:
+                evidence.append("Empty item code, no description match found.")
+                status = "EMPTY_NO_MATCH"
+            return {
+                "raw": raw_code,
+                "candidate": "",
+                "rule": "EMPTY_DESC_DRY_RUN",
+                "evidence": evidence,
+                "status": status,
+                "master_match": False,
+                "master_candidates": desc_cands
+            }
+            
+        cands = get_master_candidates(raw_code)
+        if cands:
+            candidate = raw_code
+            master_candidates = cands
+            master_match = True
+            rule = "RAW_EXACT_MATCH"
+        elif raw_code.startswith("1") and len(raw_code) > 1:
             hyp_candidate = raw_code[1:]
-            if hyp_candidate in MASTER_CODES:
+            hyp_cands = get_master_candidates(hyp_candidate)
+            if hyp_cands:
                 candidate = hyp_candidate
+                master_candidates = hyp_cands
+                master_match = True
                 rule = "FABRICATION_PREFIX_HYPOTHESIS"
-                evidence.append("Length is 8 and starts with 1")
-                evidence.append(f"Candidate {hyp_candidate} exact match in MASTER_CODES")
-                status = "VERIFIED_CANDIDATE"
+                evidence.append(f"Starts with 1. Candidate '{hyp_candidate}' matched.")
             else:
                 candidate = raw_code
                 rule = "FABRICATION_PREFIX_HYPOTHESIS_FAILED"
-                evidence.append("Length is 8 and starts with 1")
-                evidence.append(f"Hypothesis {hyp_candidate} NOT found in MASTER_CODES. Reverting to raw.")
-                status = "RAW_FALLBACK"
+                evidence.append("Starts with 1.")
+                evidence.append(f"Hypothesis '{hyp_candidate}' NOT found. Reverting to raw.")
                 
+        if master_match:
+            if len(master_candidates) > 1:
+                status = "MASTER_AMBIGUOUS"
+            else:
+                status = "VERIFIED_CANDIDATE"
+        else:
+            status = "RAW_FALLBACK" if rule else "RAW"
+            
         return {
             "raw": raw_code,
             "candidate": candidate,
             "rule": rule,
             "evidence": evidence,
-            "status": status
+            "status": status,
+            "master_match": master_match,
+            "master_candidates": master_candidates
         }
 
-    def mock_spatial_association(pl_no):
-        # We integrate the real YOLO spatial association here
-        import math
-        norm_pl_no = re.sub(r'[^0-9A-Z\-]', '', str(pl_no))
-        if norm_pl_no and yolo_spools and yolo_pieces:
-            matching_pieces = [p for p in yolo_pieces if p["text"] == norm_pl_no]
-            if matching_pieces:
-                # Use the first matched piece marker
-                p = matching_pieces[0]
-                px, py = (p["box"][0]+p["box"][2])/2, (p["box"][1]+p["box"][3])/2
-                best_dist = float('inf')
-                best_spool = ""
-                for s in yolo_spools:
-                    sx, sy = (s["box"][0]+s["box"][2])/2, (s["box"][1]+s["box"][3])/2
-                    dist = math.hypot(px - sx, py - sy)
-                    if dist < best_dist:
-                        best_dist = dist
-                        best_spool = s["text"]
-                
-                if best_spool and best_dist < 600:
-                    # Format spool
-                    f_sp = best_spool
-                    if base_drawing not in f_sp:
-                        if "SP" in f_sp:
-                            sp_match = re.search(r'(SP\d+)', f_sp)
-                            if sp_match:
-                                f_sp = f"{base_drawing}-{sp_match.group(1)}"
-                            else:
-                                f_sp = f"{base_drawing}-{f_sp}"
-                    
-                    return {
-                        "spool": f_sp,
-                        "method": "SPATIAL_PROXIMITY_AND_MARKER",
-                        "score": 0.85,
-                        "status": "SPATIAL_HIGH_CONFIDENCE",
-                        "reason": f"Piece marker {norm_pl_no} localized, nearest spool {f_sp} within margin"
-                    }
-        
-        return {
-            "spool": None,
-            "method": "SPATIAL_WEAK",
-            "score": 0.0,
-            "status": "UNRESOLVED",
-            "reason": "Weak spatial candidate, no localized piece marker found"
-        }
 
     # 2. Build CUT PIPE Lookup
     cut_pipes = []
@@ -289,6 +279,16 @@ def extract_bom_data_to_json(pdf_path, pdf_name):
         if pl not in spatial_lookup: spatial_lookup[pl] = []
         spatial_lookup[pl].append(sr)
 
+    # Collect unique spools to detect Single-Spool fallback
+    valid_spools = set()
+    for ys in yolo_spools:
+        if ys.get("text") and "BİLİNMEYEN" not in ys["text"].upper():
+            valid_spools.add(ys["text"])
+    for c_pipe in cut_pipes:
+        if c_pipe.get("spool_no") and "BİLİNMEYEN" not in c_pipe["spool_no"].upper():
+            valid_spools.add(c_pipe["spool_no"])
+    single_spool = list(valid_spools)[0] if len(valid_spools) == 1 else None
+
     # 5. Association & Row Generation
     rows = []
     
@@ -302,7 +302,7 @@ def extract_bom_data_to_json(pdf_path, pdf_name):
             "assembly_qty": "1",
             "sub_assembly": re.sub(r'[^0-9A-Z\-]', '', str(fab_data["pl_no"])),
             "sub_assembly_defination": fab_data["desc"],
-            "item_code": trace_dict["item_code_raw"],
+            "item_code": trace_dict.get("item_code_normalized") if trace_dict.get("item_code_normalized") else trace_dict.get("item_code_raw", ""),
             "qty": str(emit_qty) + ".0",
             "unit_weight": fab_data["weight"],
             "pose_no": "",
@@ -313,7 +313,7 @@ def extract_bom_data_to_json(pdf_path, pdf_name):
         rows.append(row_dict)
 
     for f in fab_rows:
-        norm_data = normalize_item_code(f["raw_item"])
+        norm_data = normalize_item_code(f["raw_item"], f["desc"])
         lookup_code = norm_data["candidate"]
         
         trace = {
@@ -321,6 +321,9 @@ def extract_bom_data_to_json(pdf_path, pdf_name):
             "item_code_raw": norm_data["raw"],
             "item_code_normalized": lookup_code,
             "normalization_status": norm_data["status"],
+            "normalization_rule": norm_data["rule"],
+            "master_match": norm_data["master_match"],
+            "master_candidates": len(norm_data["master_candidates"]),
             "category": f["category"],
             "spool": None,
             "method": None,
@@ -329,6 +332,53 @@ def extract_bom_data_to_json(pdf_path, pdf_name):
             "reason": ""
         }
         
+        # ---------------- Phase 4: Candidate Resolution ----------------
+        spatial_cand = ""
+        cut_pipe_cand = ""
+        if "PIPE" in f["category"].upper():
+            candidates_cp = cut_dict.get(lookup_code, [])
+            if len(candidates_cp) >= 1:
+                cut_pipe_cand = candidates_cp[0]["spool_no"]
+        elif any(c in f["category"].upper() for c in ["FITTINGS", "FITTNGS", "FLANGE", "GASKET", "BOLT", "VALVE", "IN-LINE", "SPECIAL", "INSTRUMENT"]):
+            assigned_spools = spatial_lookup.get(f["norm_pl"], [])
+            valid_spatial = [s for s in assigned_spools if "SPATIAL FAIL" not in s["spool"]]
+            if valid_spatial:
+                spatial_cand = valid_spatial[0]["spool"]
+            elif single_spool:
+                spatial_cand = single_spool
+                
+        ctx = {
+            "raw_item_code": norm_data["raw"],
+            "normalized_item_code": lookup_code,
+            "technical_drawing": tech_drawing,
+            "description": f["desc"],
+            "category": f["category"],
+            "spatial_spool": spatial_cand,
+            "cut_pipe_spool": cut_pipe_cand
+        }
+        
+        from candidate_resolution import resolve_candidates, dry_run_description
+        if lookup_code:
+            res_trace = resolve_candidates(ctx)
+            trace["phase4_resolution"] = res_trace
+            
+            # Auto-bind if High Confidence
+            if res_trace["status"] == "HIGH_CONFIDENCE" and res_trace.get("top1"):
+                trace["spool"] = res_trace["top1"]["candidate"]["assembly"]
+                trace["sub_assembly_override"] = res_trace["top1"]["candidate"]["sub_assembly"]
+                trace["status"] = "HIGH_CONFIDENCE_RESOLVED"
+                trace["reason"] = f"Phase 4 resolution matched with margin {res_trace['margin']}"
+        else:
+            res_trace = dry_run_description(f["desc"])
+            trace["phase4_resolution"] = res_trace
+        # ---------------------------------------------------------------
+        
+        if trace.get("status") == "HIGH_CONFIDENCE_RESOLVED":
+            f_copy = f.copy()
+            f_copy["pl_no"] = trace.get("sub_assembly_override", f["pl_no"])
+            emit_row(trace["spool"], f["qty"], trace, f_copy)
+            continue
+
         if "PIPE" in f["category"].upper():
             candidates = cut_dict.get(lookup_code, [])
             if len(candidates) == 1:
@@ -348,7 +398,7 @@ def extract_bom_data_to_json(pdf_path, pdf_name):
                     "assembly_qty": "1",
                     "sub_assembly": candidates[0]["pt_no"],
                     "sub_assembly_defination": f["desc"],
-                    "item_code": norm_data["raw"],
+                    "item_code": norm_data["candidate"] if norm_data["candidate"] else norm_data["raw"],
                     "qty": "1.0",
                     "unit_weight": f["weight"],
                     "pose_no": "",
@@ -373,9 +423,17 @@ def extract_bom_data_to_json(pdf_path, pdf_name):
                 trace["reason"] = f"No CUT PIPE match for '{lookup_code}'"
                 emit_row(trace["spool"], f["qty"], trace, f)
                 
-        elif any(c in f["category"].upper() for c in ["FITTNGS", "FITTINGS", "FLANGES"]):
+        elif any(c in f["category"].upper() for c in ["FITTINGS", "FITTNGS", "FLANGE", "GASKET", "BOLT", "VALVE", "IN-LINE", "SPECIAL", "INSTRUMENT"]):
             assigned_spools = spatial_lookup.get(f["norm_pl"], [])
-            if not assigned_spools:
+            valid_spatial = [s for s in assigned_spools if "SPATIAL FAIL" not in s["spool"]]
+            
+            if not valid_spatial and single_spool:
+                trace["spool"] = single_spool
+                trace["method"] = "SINGLE_SPOOL_FALLBACK"
+                trace["status"] = "MATCHED"
+                trace["reason"] = "Only 1 spool in drawing, bypassing spatial engine fail."
+                emit_row(trace["spool"], f["qty"], trace, f)
+            elif not assigned_spools:
                 trace["spool"] = "BİLİNMEYEN (SPATIAL FAIL)"
                 trace["method"] = "SPATIAL_WEAK"
                 trace["status"] = "UNRESOLVED"
@@ -396,7 +454,26 @@ def extract_bom_data_to_json(pdf_path, pdf_name):
             trace["reason"] = f"Unknown category '{f['category']}'"
             emit_row(trace["spool"], f["qty"], trace, f)
 
-    return rows
+    # 6. Aggregation
+    aggregated = {}
+    for r in rows:
+        # Key based on Assembly, Sub Assembly and Item Code to aggregate Qtys
+        key = (r["assembly"], r["sub_assembly"], r["item_code"])
+        if key not in aggregated:
+            aggregated[key] = r
+        else:
+            try:
+                q1 = float(aggregated[key]["qty"])
+                q2 = float(r["qty"])
+                aggregated[key]["qty"] = str(q1 + q2)
+                
+                # Combine debug reasons
+                if r["_debug"].get("reason") not in aggregated[key]["_debug"].get("reason", ""):
+                    aggregated[key]["_debug"]["reason"] = str(aggregated[key]["_debug"].get("reason", "")) + " | " + str(r["_debug"].get("reason", ""))
+            except:
+                pass
+
+    return list(aggregated.values())
 
 def main():
     print("=" * 60)

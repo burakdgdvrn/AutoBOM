@@ -92,7 +92,8 @@ def compare_excel_and_json(excel_path, json_data):
     unmatched_ex = list(filtered_excel_rows)
     
     perfect_matches = []
-    cell_discrepancies = []
+    item_sub_matches = []
+    other_discrepancies = []
     
     def calculate_score(ai_r, ex_r):
         score = 0
@@ -173,8 +174,11 @@ def compare_excel_and_json(excel_path, json_data):
             # If everything matches perfectly
             if ai_item == ex_item and ai_sub == ex_sub and ai_assm == ex_assm and ai_q == ex_q:
                 perfect_matches.append(match_data)
+                item_sub_matches.append(match_data)
+            elif ai_item == ex_item and ai_sub == ex_sub:
+                item_sub_matches.append(match_data)
             else:
-                cell_discrepancies.append(match_data)
+                other_discrepancies.append(match_data)
 
     extra_by_ai = []
     for ai_r in unmatched_ai:
@@ -203,12 +207,14 @@ def compare_excel_and_json(excel_path, json_data):
             "total_ai": len(ai_rows),
             "total_excel": len(filtered_excel_rows),
             "perfect_matches": len(perfect_matches),
-            "cell_discrepancies": len(cell_discrepancies),
+            "item_sub_matches": len(item_sub_matches),
+            "other_discrepancies": len(other_discrepancies),
             "extra_by_ai": len(extra_by_ai),
             "missed_by_ai": len(missed_by_ai)
         },
         "perfect_matches": perfect_matches,
-        "cell_discrepancies": cell_discrepancies,
+        "item_sub_matches": item_sub_matches,
+        "other_discrepancies": other_discrepancies,
         "extra_by_ai": extra_by_ai,
         "missed_by_ai": missed_by_ai,
         "raw_filtered_excel": filtered_excel_rows,

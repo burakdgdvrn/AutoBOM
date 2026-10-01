@@ -14,21 +14,7 @@ from config import OUTPUT_FILE
 # EXCEL STİL TANIMLARI
 # ============================================================================
 
-FONT_PDF = Font(name='Calibri', bold=True, size=13, color="FFFFFF")
-FILL_PDF = PatternFill(start_color="2F5496", end_color="2F5496", fill_type="solid")
-
-FONT_TABLE = Font(name='Calibri', bold=True, size=11, color="FFFFFF")
-FILL_TABLE = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-
-FONT_COL = Font(name='Calibri', bold=True, size=10)
-FILL_COL = PatternFill(start_color="D9E2F3", end_color="D9E2F3", fill_type="solid")
-
-FONT_CAT = Font(name='Calibri', bold=True, size=10, color="1F4E79")
-FILL_CAT = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
-
 FONT_DATA = Font(name='Calibri', size=10)
-FILL_ODD = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
-FILL_EVEN = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
 
 BORDER = Border(
     left=Side(style='thin', color='B4C6E7'),
@@ -36,9 +22,6 @@ BORDER = Border(
     top=Side(style='thin', color='B4C6E7'),
     bottom=Side(style='thin', color='B4C6E7'),
 )
-
-AL_C = Alignment(horizontal='center', vertical='center')
-AL_L = Alignment(horizontal='left', vertical='center', wrap_text=True)
 
 
 def write_bom_excel(all_rows):
